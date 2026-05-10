@@ -9,9 +9,9 @@ const GREEN_API_URL = 'https://7107.api.greenapi.com/waInstance' + INSTANCE_ID;
 const ALI_TRACKING_ID = 'bot01';
 const ALI_APP_KEY = '533908';
 const GROUP_CHAT_ID = 'KOL2v0rh8LH3RgfQIVr8gq@g.us';
-const ADMIN1 = 'c.usa972538800370';
-const ADMIN2 = 'c.usa972557119650';
-const ADMINS = [ADMIN1, ADMIN2];
+
+// מנהלים — מספרים בלבד
+const ADMIN_NUMBERS = ['972538800370', '972557119650'];
 
 const userMemory = {};
 const searchCount = {};
@@ -27,51 +27,60 @@ const FUNNY = {'כיסא':'😂 כיסא? בטח אחרי שעמדת כל היו
 const JOKES = ['למה הסלמון שחה נגד הזרם? כי הוא לא רצה לקנות דגים קפואים מאלי אקספרס! 😂','מה ההבדל בין אמא לאלי אקספרס? אמא תמיד מגיעה בזמן! 😄','למה הבוט לא ישן? כי הדילים לא ישנים! 🔥'];
 const FACTS = ['💡 ידעתם? אלי אקספרס מוכר מעל 100 מיליון מוצרים!','💡 ידעתם? ניתן לחסוך עד 80% לעומת מחירים בישראל!','💡 ידעתם? אלי אקספרס מציע החזר כספי מלא אם המוצר לא הגיע!'];
 
+function getPhone(raw) {
+  return raw.replace('@c.us','').replace('c.us','').replace('@','').trim();
+}
+
+function isAdmin(raw) {
+  var p = getPhone(raw);
+  return ADMIN_NUMBERS.indexOf(p) !== -1;
+}
+
+function isFrozen(raw) { var p=getPhone(raw); return frozenUsers.indexOf(p)!==-1; }
+function isVIP(raw) { var p=getPhone(raw); return vipUsers.indexOf(p)!==-1; }
+
 function translateToEnglish(text) { var r=text; for(var k in TRANSLATIONS) r=r.split(k).join(TRANSLATIONS[k]); return r; }
 function buildLink(query) { return 'https://www.aliexpress.com/wholesale?SearchText='+encodeURIComponent(translateToEnglish(query))+'&SortType=total_tranpro_desc&aff_platform=portals-tool&sk=_dV4Bh9T&aff_trace_key='+ALI_TRACKING_ID+'&terminal_id='+ALI_APP_KEY; }
 function getHeat() { var h=''; for(var i=0;i<Math.floor(Math.random()*3)+3;i++) h+='🔥'; return h; }
 function getGreeting() { var h=new Date().getHours(); if(h>=6&&h<12) return '☀️ בוקר טוב!'; if(h>=12&&h<17) return '🌤️ צהריים טובים!'; if(h>=17&&h<21) return '🌆 ערב טוב!'; return '🌙 לילה טוב!'; }
-function isAdmin(p) { return ADMINS.indexOf(p)!==-1; }
-function isFrozen(p) { return frozenUsers.indexOf(p)!==-1; }
-function isVIP(p) { return vipUsers.indexOf(p)!==-1; }
 function hasBadWord(t) { var l=t.toLowerCase(); for(var i=0;i<BAD_WORDS.length;i++) if(l.indexOf(BAD_WORDS[i].toLowerCase())!==-1) return true; return false; }
 function hasSpam(t) { for(var i=0;i<SPAM_WORDS.length;i++) if(t.indexOf(SPAM_WORDS[i])!==-1) return true; return false; }
 function sleep(ms) { return new Promise(function(r){setTimeout(r,ms);}); }
 
 async function sendMsg(chatId,message) { try { await axios.post(GREEN_API_URL+'/sendMessage/'+API_TOKEN,{chatId,message}); } catch(e) { console.error(e.message); } }
 async function sendTyping(chatId) { try { await axios.post(GREEN_API_URL+'/sendTyping/'+API_TOKEN,{chatId}); } catch(e) {} }
-async function sendToAdmins(msg) { await sendMsg(ADMIN1,msg); await sendMsg(ADMIN2,msg); }
+async function sendToAdmins(msg) { for(var i=0;i<ADMIN_NUMBERS.length;i++) await sendMsg(ADMIN_NUMBERS[i]+'@c.us',msg); }
 
 async function sendDailyDeal() {
   var deals=[{name:'אוזניות בלוטות פרו',query:'bluetooth earphones pro',saving:120},{name:'שעון חכם 2024',query:'smart watch 2024',saving:250},{name:'מטען מהיר 65W',query:'fast charger 65w',saving:80},{name:'רמקול בלוטות',query:'waterproof bluetooth speaker',saving:150},{name:'מצלמת אבטחה WiFi',query:'security camera wifi',saving:200}];
   var d=deals[Math.floor(Math.random()*deals.length)];
   await sendMsg(GROUP_CHAT_ID,'🚨 *דיל היום!* 🚨\n\nהדיל הכי חם: *'+d.name+'*\n\n🌡️ חום הדיל: '+getHeat()+'\n💰 חיסכון לעומת ישראל: *₪'+d.saving+'*\n\n👉 '+buildLink(d.query)+'\n\n⚡ אל תפספסו!');
 }
-async function sendPoll() { await sendMsg(GROUP_CHAT_ID,'📊 *סקר שבועי!*\n\nמה הכי מעניין אתכם?\n\n1️⃣ אוזניות\n2️⃣ שעונים חכמים\n3️⃣ מוצרי בית\n4️⃣ ביגוד\n5️⃣ ספורט\n6️⃣ אלקטרוניקה\n\nענו עם המספר! 👇'); }
-async function sendSurprise() { var l=[{name:'גאדגט מטורף',query:'cool gadget 2024'},{name:'מוצר ויראלי',query:'viral product tiktok'},{name:'המצאה מדהימה',query:'amazing invention cheap'}]; var s=l[Math.floor(Math.random()*l.length)]; await sendMsg(GROUP_CHAT_ID,'🎁 *קופסת הפתעה!*\n\n*'+s.name+'* — המחיר יפיל אתכם!\n\n👉 '+buildLink(s.query)+'\n\n😱'); }
-async function announceKing() { var king=null,max=0; for(var p in searchCount) if(searchCount[p]>max){max=searchCount[p];king=p;} if(king&&max>0){await sendMsg(GROUP_CHAT_ID,'👑 *מלך הקבוצה!*\n\n@'+king.replace('@c.us','')+' חיפש/ה *'+max+'* פעמים!\n\n🏆 כל הכבוד! 🔥'); for(var k in searchCount) delete searchCount[k];} }
+async function sendPoll() { await sendMsg(GROUP_CHAT_ID,'📊 *סקר שבועי!*\n\n1️⃣ אוזניות\n2️⃣ שעונים חכמים\n3️⃣ מוצרי בית\n4️⃣ ביגוד\n5️⃣ ספורט\n6️⃣ אלקטרוניקה\n\nענו עם המספר! 👇'); }
+async function sendSurprise() { var l=[{name:'גאדגט מטורף',query:'cool gadget 2024'},{name:'מוצר ויראלי',query:'viral product tiktok'},{name:'המצאה מדהימה',query:'amazing invention cheap'}]; var s=l[Math.floor(Math.random()*l.length)]; await sendMsg(GROUP_CHAT_ID,'🎁 *קופסת הפתעה!*\n\n*'+s.name+'*\n\n👉 '+buildLink(s.query)+'\n\n😱'); }
+async function announceKing() { var king=null,max=0; for(var p in searchCount) if(searchCount[p]>max){max=searchCount[p];king=p;} if(king&&max>0){await sendMsg(GROUP_CHAT_ID,'👑 *מלך הקבוצה!*\n\n@'+king+' חיפש/ה *'+max+'* פעמים!\n\n🏆 כל הכבוד! 🔥'); for(var k in searchCount) delete searchCount[k];} }
 
-async function handleAdmin(text,phone) {
+async function handleAdmin(text, chatId) {
   var cmd=text.trim();
-  console.log('פקודת מנהל:'+cmd);
-  if(cmd==='!דיל'){await sendDailyDeal();await sendMsg(phone,'✅ דיל נשלח!');return;}
-  if(cmd==='!סקר'){await sendPoll();await sendMsg(phone,'✅ סקר נשלח!');return;}
-  if(cmd==='!הפתעה'){await sendSurprise();await sendMsg(phone,'✅ הפתעה נשלחה!');return;}
-  if(cmd==='!מלך'){await announceKing();await sendMsg(phone,'✅ מלך הוכרז!');return;}
-  if(cmd==='!מצב'){var t=0;for(var p in searchCount)t+=searchCount[p];await sendMsg(phone,'📊 *סטטוס:*\n🔍 חיפושים: '+t+'\n❄️ מוקפאים: '+frozenUsers.length+'\n👑 VIP: '+vipUsers.length);return;}
-  if(cmd==='!ניקוי'){for(var k in searchCount)delete searchCount[k];await sendMsg(phone,'✅ אופס!');return;}
-  if(cmd==='!בדיחה'){await sendMsg(GROUP_CHAT_ID,'😂 *בדיחה:*\n\n'+JOKES[Math.floor(Math.random()*JOKES.length)]);await sendMsg(phone,'✅');return;}
-  if(cmd==='!עובדה'){await sendMsg(GROUP_CHAT_ID,FACTS[Math.floor(Math.random()*FACTS.length)]);await sendMsg(phone,'✅');return;}
-  if(cmd==='!תחרות'){await sendMsg(GROUP_CHAT_ID,'🏆 *תחרות דילים!*\n\nמי ימצא את הדיל הכי זול?\nהזוכה מקבל 👑 VIP!\n\nיאללה! 🔥');await sendMsg(phone,'✅');return;}
-  if(cmd==='!מצב לילה'){await sendMsg(GROUP_CHAT_ID,'🌙 *מצב לילה*\n\nהבוט עובד בלחישות 😴');await sendMsg(phone,'✅');return;}
-  if(cmd==='!מצב טירוף'){await sendMsg(GROUP_CHAT_ID,'🔥🤯💥 *מצב טירוף!*\n\nיאללה! 🚀💰');await sendMsg(phone,'✅');return;}
-  if(cmd.indexOf('!הקפא ')===0){var n=cmd.replace('!הקפא ','').replace(/^0/,'');var fp='972'+n+'@c.us';if(frozenUsers.indexOf(fp)===-1)frozenUsers.push(fp);await sendMsg(phone,'✅ הוקפא!');return;}
-  if(cmd.indexOf('!שחרר ')===0){var n2=cmd.replace('!שחרר ','').replace(/^0/,'');var fp2='972'+n2+'@c.us';var i=frozenUsers.indexOf(fp2);if(i!==-1)frozenUsers.splice(i,1);await sendMsg(phone,'✅ שוחרר!');return;}
-  if(cmd.indexOf('!VIP ')===0){var n3=cmd.replace('!VIP ','').replace(/^0/,'');var vp='972'+n3+'@c.us';if(vipUsers.indexOf(vp)===-1)vipUsers.push(vp);await sendMsg(GROUP_CHAT_ID,'👑 @'+vp.replace('@c.us','')+' קיבל/ה VIP! 🌟');await sendMsg(phone,'✅');return;}
-  if(cmd.indexOf('!אזהרה ')===0){var n4=cmd.replace('!אזהרה ','').replace(/^0/,'');var wp='972'+n4+'@c.us';await sendMsg(wp,'⚠️ *אזהרה מהמנהל!*\n\nאנא שמור על כללי הקבוצה 🙏');await sendMsg(phone,'✅');return;}
-  if(cmd.indexOf('!כבוד ')===0){var n5=cmd.replace('!כבוד ','').replace(/^0/,'');var hp='972'+n5+'@c.us';await sendMsg(GROUP_CHAT_ID,'🏆 *גיבור הקבוצה!*\n\n@'+hp.replace('@c.us','')+' הגיבור/ת שלנו! ❤️');await sendMsg(phone,'✅');return;}
-  if(cmd.indexOf('!הודעה ')===0){await sendMsg(GROUP_CHAT_ID,'📢 *הודעה מהמנהל:*\n\n'+cmd.replace('!הודעה ',''));await sendMsg(phone,'✅');return;}
-  if(cmd==='!עזרה'){await sendMsg(phone,'📋 *פקודות מנהל:*\n\n!דיל !סקר !הפתעה !מלך !מצב !ניקוי !בדיחה !עובדה !תחרות\n!מצב לילה !מצב טירוף\n!הקפא [מספר]\n!שחרר [מספר]\n!VIP [מספר]\n!אזהרה [מספר]\n!כבוד [מספר]\n!הודעה [טקסט]');return;}
+  console.log('פקודת מנהל: '+cmd);
+  if(cmd==='!דיל'){await sendDailyDeal();await sendMsg(chatId,'✅ דיל נשלח!');return;}
+  if(cmd==='!סקר'){await sendPoll();await sendMsg(chatId,'✅ סקר נשלח!');return;}
+  if(cmd==='!הפתעה'){await sendSurprise();await sendMsg(chatId,'✅ הפתעה נשלחה!');return;}
+  if(cmd==='!מלך'){await announceKing();await sendMsg(chatId,'✅ מלך הוכרז!');return;}
+  if(cmd==='!מצב'){var t=0;for(var p in searchCount)t+=searchCount[p];await sendMsg(chatId,'📊 *סטטוס:*\n🔍 חיפושים: '+t+'\n❄️ מוקפאים: '+frozenUsers.length+'\n👑 VIP: '+vipUsers.length);return;}
+  if(cmd==='!ניקוי'){for(var k in searchCount)delete searchCount[k];await sendMsg(chatId,'✅ אופס!');return;}
+  if(cmd==='!בדיחה'){await sendMsg(GROUP_CHAT_ID,'😂 *בדיחה:*\n\n'+JOKES[Math.floor(Math.random()*JOKES.length)]);await sendMsg(chatId,'✅');return;}
+  if(cmd==='!עובדה'){await sendMsg(GROUP_CHAT_ID,FACTS[Math.floor(Math.random()*FACTS.length)]);await sendMsg(chatId,'✅');return;}
+  if(cmd==='!תחרות'){await sendMsg(GROUP_CHAT_ID,'🏆 *תחרות דילים!*\n\nמי ימצא את הדיל הכי זול?\nהזוכה מקבל 👑 VIP!\n\nיאללה! 🔥');await sendMsg(chatId,'✅');return;}
+  if(cmd==='!מצב לילה'){await sendMsg(GROUP_CHAT_ID,'🌙 *מצב לילה*\n\nהבוט עובד בלחישות 😴');await sendMsg(chatId,'✅');return;}
+  if(cmd==='!מצב טירוף'){await sendMsg(GROUP_CHAT_ID,'🔥🤯💥 *מצב טירוף!*\n\nיאללה! 🚀💰');await sendMsg(chatId,'✅');return;}
+  if(cmd.indexOf('!הקפא ')===0){var n=cmd.replace('!הקפא ','').replace(/^0/,'');if(frozenUsers.indexOf(n)===-1)frozenUsers.push(n);await sendMsg(chatId,'✅ הוקפא!');return;}
+  if(cmd.indexOf('!שחרר ')===0){var n2=cmd.replace('!שחרר ','').replace(/^0/,'');var i=frozenUsers.indexOf(n2);if(i!==-1)frozenUsers.splice(i,1);await sendMsg(chatId,'✅ שוחרר!');return;}
+  if(cmd.indexOf('!VIP ')===0){var n3=cmd.replace('!VIP ','').replace(/^0/,'');if(vipUsers.indexOf(n3)===-1)vipUsers.push(n3);await sendMsg(GROUP_CHAT_ID,'👑 @'+n3+' קיבל/ה VIP! 🌟');await sendMsg(chatId,'✅');return;}
+  if(cmd.indexOf('!אזהרה ')===0){var n4=cmd.replace('!אזהרה ','').replace(/^0/,'');await sendMsg(n4+'@c.us','⚠️ *אזהרה מהמנהל!*\n\nאנא שמור על כללי הקבוצה 🙏');await sendMsg(chatId,'✅');return;}
+  if(cmd.indexOf('!כבוד ')===0){var n5=cmd.replace('!כבוד ','').replace(/^0/,'');await sendMsg(GROUP_CHAT_ID,'🏆 *גיבור הקבוצה!*\n\n@'+n5+' הגיבור/ת שלנו! ❤️');await sendMsg(chatId,'✅');return;}
+  if(cmd.indexOf('!הודעה ')===0){await sendMsg(GROUP_CHAT_ID,'📢 *הודעה מהמנהל:*\n\n'+cmd.replace('!הודעה ',''));await sendMsg(chatId,'✅');return;}
+  if(cmd==='!עזרה'){await sendMsg(chatId,'📋 *פקודות מנהל:*\n\n!דיל !סקר !הפתעה !מלך !מצב !ניקוי !בדיחה !עובדה !תחרות\n!מצב לילה !מצב טירוף\n!הקפא [מספר]\n!שחרר [מספר]\n!VIP [מספר]\n!אזהרה [מספר]\n!כבוד [מספר]\n!הודעה [טקסט]');return;}
 }
 
 function scheduleDaily(){var now=new Date(),next=new Date();next.setHours(10,0,0,0);if(now>=next)next.setDate(next.getDate()+1);setTimeout(async function(){await sendDailyDeal();scheduleDaily();},next-now);}
@@ -89,21 +98,25 @@ app.post('/webhook',async function(req,res){
     if(md.textMessageData&&md.textMessageData.textMessage) text=md.textMessageData.textMessage;
     var sd=body.senderData||{};
     var chatId=sd.chatId||'';
-    var senderPhone=sd.sender||'';
+    var senderRaw=sd.sender||'';
     var senderName=sd.senderName||'חבר';
+    var senderPhone=getPhone(senderRaw);
     if(!text||!chatId||!senderPhone) return;
 
-    console.log('הודעה | טלפון:'+senderPhone+' | טקסט:'+text.substring(0,40));
+    console.log('הודעה | '+senderPhone+' | '+text.substring(0,40));
+    console.log('isAdmin: '+isAdmin(senderRaw));
 
-    if(isAdmin(senderPhone)&&text.charAt(0)==='!'){await handleAdmin(text,senderPhone);return;}
-    if(isFrozen(senderPhone)) return;
-    if(hasSpam(text)){await sendMsg(chatId,'🚫 @'+senderPhone.replace('@c.us','')+' פרסומות אסורות! 🙏');await sendToAdmins('🚨 *ספאם!*\n'+senderName+':\n"'+text+'"');return;}
+    if(isAdmin(senderRaw)&&text.charAt(0)==='!'){await handleAdmin(text,chatId);return;}
+    if(isFrozen(senderRaw)) return;
+
+    if(hasSpam(text)){await sendMsg(chatId,'🚫 @'+senderPhone+' פרסומות אסורות! 🙏');await sendToAdmins('🚨 *ספאם!*\n'+senderName+':\n"'+text+'"');return;}
+
     if(hasBadWord(text)){
       warningCount[senderPhone]=(warningCount[senderPhone]||0)+1;
       var w=warningCount[senderPhone];
-      await sendMsg(chatId,'⚠️ @'+senderPhone.replace('@c.us','')+' אזהרה '+w+'/3! שלחתי לך הודעה פרטית 🙏');
-      await sendMsg(senderPhone,'שלום '+senderName+' 👋\n\nזוהי אזהרה *'+w+'* מתוך 3.\nהשפה שהשתמשת בה לא מתאימה 🙏\n\n'+(w>=3?'⛔ אזהרה אחרונה!':'😊 בוא נמשיך בצורה נעימה!'));
-      if(w>=3){if(frozenUsers.indexOf(senderPhone)===-1)frozenUsers.push(senderPhone);await sendMsg(chatId,'❄️ @'+senderPhone.replace('@c.us','')+' הוקפא!');}
+      await sendMsg(chatId,'⚠️ @'+senderPhone+' אזהרה '+w+'/3! שלחתי לך הודעה פרטית 🙏');
+      await sendMsg(senderPhone+'@c.us','שלום '+senderName+' 👋\n\nזוהי אזהרה *'+w+'* מתוך 3.\n\n'+(w>=3?'⛔ אזהרה אחרונה!':'😊 בוא נמשיך בצורה נעימה!'));
+      if(w>=3){if(frozenUsers.indexOf(senderPhone)===-1)frozenUsers.push(senderPhone);await sendMsg(chatId,'❄️ @'+senderPhone+' הוקפא!');}
       await sendToAdmins('🚨 *קללה!*\n'+senderName+' (אזהרה '+w+'/3):\n"'+text+'"');
       return;
     }
@@ -117,33 +130,27 @@ app.post('/webhook',async function(req,res){
     userMemory[senderPhone].push(searchQuery);
     searchCount[senderPhone]=(searchCount[senderPhone]||0)+1;
     var total=searchCount[senderPhone];
-    var mention='@'+senderPhone.replace('@c.us','');
-    var vipTag=isVIP(senderPhone)?' 👑':'';
+    var mention='@'+senderPhone;
     var link=buildLink(searchQuery);
     var saving=Math.floor(Math.random()*200)+50;
     var funnyMsg='';
     for(var fk in FUNNY){if(searchQuery.indexOf(fk)!==-1){funnyMsg=FUNNY[fk];break;}}
 
     await sendTyping(chatId);
-    await sendMsg(chatId,getGreeting()+' '+mention+vipTag+'!\n🔍 מחפש *'+searchQuery+'*... רגע אחד!');
+    await sendMsg(chatId,getGreeting()+' '+mention+'!\n🔍 מחפש *'+searchQuery+'*... רגע אחד!');
     await sleep(2000);
     await sendTyping(chatId);
     await sleep(1500);
 
-    var reply=mention+vipTag+' ✅ *מצאתי עבורך '+searchQuery+'!*\n\n';
+    var reply=mention+' ✅ *מצאתי עבורך '+searchQuery+'!*\n\n';
     if(funnyMsg) reply+=funnyMsg+'\n\n';
     reply+='🌡️ חום הדיל: '+getHeat()+'\n';
     reply+='💰 חיסכון לעומת ישראל: *₪'+saving+'*\n\n';
     reply+='👇 לחץ לראות:\n'+link+'\n\n';
     reply+='🔥 מחירים מטורפים!';
 
-    if(total===5) reply+='\n\n🎉 החיפוש ה-5 שלך! מכור לדילים! 😄';
+    if(total===5) reply+='\n\n🎉 החיפוש ה-5 שלך! 😄';
     else if(total===10){reply+='\n\n🏆 *10 חיפושים!* מלך הדילים! 👑';await sendToAdmins('🎉 '+senderName+' הגיע ל-10 חיפושים!');}
-    else if(total===20){if(vipUsers.indexOf(senderPhone)===-1)vipUsers.push(senderPhone);reply+='\n\n🌟 *20 חיפושים!* קיבלת VIP! 👑';}
-
-    var prevList=userMemory[senderPhone];
-    if(prevList.length>1){var lastS=prevList[prevList.length-2];if(lastS!==searchQuery) reply+='\n\n💡 *בפעם הקודמת חיפשת:* '+lastS;}
-    for(var sp in userMemory){if(sp!==senderPhone&&userMemory[sp].indexOf(searchQuery)!==-1){reply+='\n\n🤝 גם @'+sp.replace('@c.us','')+' חיפש/ה את זה! תעשו הזמנה ביחד! 😄';break;}}
 
     await sendMsg(chatId,reply);
   } catch(e){console.error('שגיאה:',e.message);}
