@@ -14,22 +14,19 @@ const TRIGGER_WORDS = [
   'אני מחפש', 'אני מחפשת', 'חפש לי', 'חפשי לי', 'מישהו מכיר',
   'מישהי מכירה', 'אני צריך', 'אני צריכה', 'מחפש', 'מחפשת',
   'יש מוצר', 'מחפש משהו', 'מחפשת משהו', 'איפה אפשר לקנות',
-  'מישהו יודע איפה', 'מישהי יודעת איפה', 'רוצה לקנות', 'רוצה לקנות'
+  'רוצה לקנות'
 ];
 
 const TRANSLATIONS = {
   'אוזניות': 'earphones', 'בלוטות': 'bluetooth', 'נעליים': 'shoes',
-  'נעל': 'shoes', 'שעון': 'watch', 'שעונים': 'watches', 'טלפון': 'phone',
-  'מטען': 'charger', 'כיסא': 'chair', 'מאוורר': 'fan', 'מצלמה': 'camera',
-  'תיק': 'bag', 'תיקים': 'bags', 'בגדים': 'clothes', 'צמיד': 'bracelet',
-  'טבעת': 'ring', 'משקפיים': 'glasses', 'ספורט': 'sport', 'ילדים': 'kids',
-  'צעצוע': 'toy', 'מטבח': 'kitchen', 'עט': 'pen', 'מחשב': 'computer',
-  'לפטופ': 'laptop', 'אוזניה': 'earphone', 'זול': 'cheap', 'כפפות': 'gloves',
-  'מסכה': 'mask', 'טאבלט': 'tablet', 'רמקול': 'speaker', 'מקלדת': 'keyboard',
+  'נעל': 'shoes', 'שעון': 'watch', 'טלפון': 'phone', 'מטען': 'charger',
+  'כיסא': 'chair', 'מאוורר': 'fan', 'מצלמה': 'camera', 'תיק': 'bag',
+  'בגדים': 'clothes', 'צמיד': 'bracelet', 'טבעת': 'ring', 'משקפיים': 'glasses',
+  'ספורט': 'sport', 'ילדים': 'kids', 'צעצוע': 'toy', 'מטבח': 'kitchen',
+  'עט': 'pen', 'מחשב': 'computer', 'לפטופ': 'laptop', 'זול': 'cheap',
+  'כפפות': 'gloves', 'טאבלט': 'tablet', 'רמקול': 'speaker', 'מקלדת': 'keyboard',
   'עכבר': 'mouse', 'מנורה': 'lamp', 'שמיכה': 'blanket', 'כרית': 'pillow',
-  'מראה': 'mirror', 'מברשת': 'brush', 'בושם': 'perfume', 'קרם': 'cream',
-  'שמפו': 'shampoo', 'סבון': 'soap', 'גרביים': 'socks', 'חגורה': 'belt',
-  'ארנק': 'wallet', 'מטריה': 'umbrella', 'כובע': 'hat', 'צעיף': 'scarf'
+  'ארנק': 'wallet', 'כובע': 'hat', 'גרביים': 'socks', 'חגורה': 'belt'
 };
 
 function translateToEnglish(text) {
@@ -38,6 +35,15 @@ function translateToEnglish(text) {
     result = result.replace(new RegExp(hebrew, 'g'), english);
   }
   return result;
+}
+
+async function shortenUrl(longUrl) {
+  try {
+    const response = await axios.get(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(longUrl)}`, { timeout: 5000 });
+    return response.data;
+  } catch (error) {
+    return longUrl;
+  }
 }
 
 function buildSearchLink(query) {
@@ -85,12 +91,13 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    await sendWhatsAppMessage(chatId, `🔍 מחפש *${searchQuery}* באלי אקספרס...`);
-    
+    await sendWhatsAppMessage(chatId, `🔍 מחפש *${searchQuery}*... רגע!`);
     await sleep(3000);
 
-    const link = buildSearchLink(searchQuery);
-    const message = `✅ מצאתי!\n\nהנה המוצרים הכי טובים עבור *${searchQuery}*:\n\n👉 ${link}\n\n🔥 מחירים מטורפים! לחץ לראות`;
+    const longLink = buildSearchLink(searchQuery);
+    const shortLink = await shortenUrl(longLink);
+
+    const message = `✅ *מצאתי עבורך ${searchQuery}!*\n\n👇 לחץ לראות את הדילים הכי טובים:\n${shortLink}\n\n🔥 מחירים מטורפים!`;
 
     await sendWhatsAppMessage(chatId, message);
   } catch (error) {
