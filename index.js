@@ -5,12 +5,10 @@ app.use(express.json());
 
 const INSTANCE_ID = '7107614702';
 const API_TOKEN = 'aaf1035940284f4e80553c38cee6ffadd2704e160e1e4895ae';
-const GREEN_API_URL = 'https://7107.api.greenapi.com/waInstance' + INSTANCE_ID;
+const BASE_URL = 'https://7107.api.greenapi.com';
 const ALI_TRACKING_ID = 'bot01';
 const ALI_APP_KEY = '533908';
 const GROUP_CHAT_ID = 'KOL2v0rh8LH3RgfQIVr8gq@g.us';
-
-// מנהלים — מספרים בלבד
 const ADMIN_NUMBERS = ['972538800370', '972557119650'];
 
 const userMemory = {};
@@ -27,18 +25,9 @@ const FUNNY = {'כיסא':'😂 כיסא? בטח אחרי שעמדת כל היו
 const JOKES = ['למה הסלמון שחה נגד הזרם? כי הוא לא רצה לקנות דגים קפואים מאלי אקספרס! 😂','מה ההבדל בין אמא לאלי אקספרס? אמא תמיד מגיעה בזמן! 😄','למה הבוט לא ישן? כי הדילים לא ישנים! 🔥'];
 const FACTS = ['💡 ידעתם? אלי אקספרס מוכר מעל 100 מיליון מוצרים!','💡 ידעתם? ניתן לחסוך עד 80% לעומת מחירים בישראל!','💡 ידעתם? אלי אקספרס מציע החזר כספי מלא אם המוצר לא הגיע!'];
 
-function getPhone(raw) {
-  return raw.replace('@c.us','').replace('c.us','').replace('@','').trim();
-}
-
-function isAdmin(raw) {
-  var p = getPhone(raw);
-  return ADMIN_NUMBERS.indexOf(p) !== -1;
-}
-
-function isFrozen(raw) { var p=getPhone(raw); return frozenUsers.indexOf(p)!==-1; }
-function isVIP(raw) { var p=getPhone(raw); return vipUsers.indexOf(p)!==-1; }
-
+function getPhone(raw) { return raw.replace('c.us','').replace('@','').replace('.','').trim(); }
+function isAdmin(raw) { var p=getPhone(raw); return ADMIN_NUMBERS.indexOf(p)!==-1; }
+function isFrozen(raw) { return frozenUsers.indexOf(getPhone(raw))!==-1; }
 function translateToEnglish(text) { var r=text; for(var k in TRANSLATIONS) r=r.split(k).join(TRANSLATIONS[k]); return r; }
 function buildLink(query) { return 'https://www.aliexpress.com/wholesale?SearchText='+encodeURIComponent(translateToEnglish(query))+'&SortType=total_tranpro_desc&aff_platform=portals-tool&sk=_dV4Bh9T&aff_trace_key='+ALI_TRACKING_ID+'&terminal_id='+ALI_APP_KEY; }
 function getHeat() { var h=''; for(var i=0;i<Math.floor(Math.random()*3)+3;i++) h+='🔥'; return h; }
@@ -47,18 +36,48 @@ function hasBadWord(t) { var l=t.toLowerCase(); for(var i=0;i<BAD_WORDS.length;i
 function hasSpam(t) { for(var i=0;i<SPAM_WORDS.length;i++) if(t.indexOf(SPAM_WORDS[i])!==-1) return true; return false; }
 function sleep(ms) { return new Promise(function(r){setTimeout(r,ms);}); }
 
-async function sendMsg(chatId,message) { try { await axios.post(GREEN_API_URL+'/sendMessage/'+API_TOKEN,{chatId,message}); } catch(e) { console.error(e.message); } }
-async function sendTyping(chatId) { try { await axios.post(GREEN_API_URL+'/sendTyping/'+API_TOKEN,{chatId}); } catch(e) {} }
-async function sendToAdmins(msg) { for(var i=0;i<ADMIN_NUMBERS.length;i++) await sendMsg(ADMIN_NUMBERS[i]+'@c.us',msg); }
+async function sendMsg(chatId, message) {
+  try {
+    var url = BASE_URL+'/waInstance'+INSTANCE_ID+'/sendMessage/'+API_TOKEN;
+    var res = await axios.post(url, {chatId:chatId, message:message});
+    console.log('נשלח ל:'+chatId+' | תגובה:'+res.status);
+  } catch(e) {
+    console.error('שגיאה בשליחה ל:'+chatId+' | '+e.message);
+  }
+}
+
+async function sendTyping(chatId) {
+  try { await axios.post(BASE_URL+'/waInstance'+INSTANCE_ID+'/sendTyping/'+API_TOKEN,{chatId:chatId}); } catch(e) {}
+}
+
+async function sendToAdmins(msg) {
+  for(var i=0;i<ADMIN_NUMBERS.length;i++) await sendMsg(ADMIN_NUMBERS[i]+'@c.us', msg);
+}
 
 async function sendDailyDeal() {
   var deals=[{name:'אוזניות בלוטות פרו',query:'bluetooth earphones pro',saving:120},{name:'שעון חכם 2024',query:'smart watch 2024',saving:250},{name:'מטען מהיר 65W',query:'fast charger 65w',saving:80},{name:'רמקול בלוטות',query:'waterproof bluetooth speaker',saving:150},{name:'מצלמת אבטחה WiFi',query:'security camera wifi',saving:200}];
   var d=deals[Math.floor(Math.random()*deals.length)];
-  await sendMsg(GROUP_CHAT_ID,'🚨 *דיל היום!* 🚨\n\nהדיל הכי חם: *'+d.name+'*\n\n🌡️ חום הדיל: '+getHeat()+'\n💰 חיסכון לעומת ישראל: *₪'+d.saving+'*\n\n👉 '+buildLink(d.query)+'\n\n⚡ אל תפספסו!');
+  await sendMsg(GROUP_CHAT_ID,'🚨 *דיל היום!* 🚨\n\nהדיל הכי חם: *'+d.name+'*\n\n🌡️ חום הדיל: '+getHeat()+'\n💰 חיסכון: *₪'+d.saving+'*\n\n👉 '+buildLink(d.query)+'\n\n⚡ אל תפספסו!');
 }
-async function sendPoll() { await sendMsg(GROUP_CHAT_ID,'📊 *סקר שבועי!*\n\n1️⃣ אוזניות\n2️⃣ שעונים חכמים\n3️⃣ מוצרי בית\n4️⃣ ביגוד\n5️⃣ ספורט\n6️⃣ אלקטרוניקה\n\nענו עם המספר! 👇'); }
-async function sendSurprise() { var l=[{name:'גאדגט מטורף',query:'cool gadget 2024'},{name:'מוצר ויראלי',query:'viral product tiktok'},{name:'המצאה מדהימה',query:'amazing invention cheap'}]; var s=l[Math.floor(Math.random()*l.length)]; await sendMsg(GROUP_CHAT_ID,'🎁 *קופסת הפתעה!*\n\n*'+s.name+'*\n\n👉 '+buildLink(s.query)+'\n\n😱'); }
-async function announceKing() { var king=null,max=0; for(var p in searchCount) if(searchCount[p]>max){max=searchCount[p];king=p;} if(king&&max>0){await sendMsg(GROUP_CHAT_ID,'👑 *מלך הקבוצה!*\n\n@'+king+' חיפש/ה *'+max+'* פעמים!\n\n🏆 כל הכבוד! 🔥'); for(var k in searchCount) delete searchCount[k];} }
+
+async function sendPoll() {
+  await sendMsg(GROUP_CHAT_ID,'📊 *סקר שבועי!*\n\n1️⃣ אוזניות\n2️⃣ שעונים חכמים\n3️⃣ מוצרי בית\n4️⃣ ביגוד\n5️⃣ ספורט\n6️⃣ אלקטרוניקה\n\nענו עם המספר! 👇');
+}
+
+async function sendSurprise() {
+  var l=[{name:'גאדגט מטורף',query:'cool gadget 2024'},{name:'מוצר ויראלי',query:'viral product tiktok'},{name:'המצאה מדהימה',query:'amazing invention cheap'}];
+  var s=l[Math.floor(Math.random()*l.length)];
+  await sendMsg(GROUP_CHAT_ID,'🎁 *קופסת הפתעה!*\n\n*'+s.name+'*\n\n👉 '+buildLink(s.query)+'\n\n😱');
+}
+
+async function announceKing() {
+  var king=null,max=0;
+  for(var p in searchCount) if(searchCount[p]>max){max=searchCount[p];king=p;}
+  if(king&&max>0){
+    await sendMsg(GROUP_CHAT_ID,'👑 *מלך הקבוצה!*\n\n@'+king+' חיפש/ה *'+max+'* פעמים!\n\n🏆 כל הכבוד! 🔥');
+    for(var k in searchCount) delete searchCount[k];
+  }
+}
 
 async function handleAdmin(text, chatId) {
   var cmd=text.trim();
@@ -103,8 +122,7 @@ app.post('/webhook',async function(req,res){
     var senderPhone=getPhone(senderRaw);
     if(!text||!chatId||!senderPhone) return;
 
-    console.log('הודעה | '+senderPhone+' | '+text.substring(0,40));
-    console.log('isAdmin: '+isAdmin(senderRaw));
+    console.log('הודעה | '+senderPhone+' | isAdmin:'+isAdmin(senderRaw)+' | '+text.substring(0,30));
 
     if(isAdmin(senderRaw)&&text.charAt(0)==='!'){await handleAdmin(text,chatId);return;}
     if(isFrozen(senderRaw)) return;
@@ -114,10 +132,10 @@ app.post('/webhook',async function(req,res){
     if(hasBadWord(text)){
       warningCount[senderPhone]=(warningCount[senderPhone]||0)+1;
       var w=warningCount[senderPhone];
-      await sendMsg(chatId,'⚠️ @'+senderPhone+' אזהרה '+w+'/3! שלחתי לך הודעה פרטית 🙏');
+      await sendMsg(chatId,'⚠️ @'+senderPhone+' אזהרה '+w+'/3!');
       await sendMsg(senderPhone+'@c.us','שלום '+senderName+' 👋\n\nזוהי אזהרה *'+w+'* מתוך 3.\n\n'+(w>=3?'⛔ אזהרה אחרונה!':'😊 בוא נמשיך בצורה נעימה!'));
       if(w>=3){if(frozenUsers.indexOf(senderPhone)===-1)frozenUsers.push(senderPhone);await sendMsg(chatId,'❄️ @'+senderPhone+' הוקפא!');}
-      await sendToAdmins('🚨 *קללה!*\n'+senderName+' (אזהרה '+w+'/3):\n"'+text+'"');
+      await sendToAdmins('🚨 *קללה!*\n'+senderName+' ('+w+'/3):\n"'+text+'"');
       return;
     }
 
