@@ -9,8 +9,8 @@ const GREEN_API_URL = 'https://7107.api.greenapi.com/waInstance' + INSTANCE_ID;
 const ALI_TRACKING_ID = 'bot01';
 const ALI_APP_KEY = '533908';
 const GROUP_CHAT_ID = 'KOL2v0rh8LH3RgfQIVr8gq@g.us';
-const ADMIN1 = '972538800370@c.us';
-const ADMIN2 = '972557119650@c.us';
+const ADMIN1 = 'c.usa972538800370';
+const ADMIN2 = 'c.usa972557119650';
 const ADMINS = [ADMIN1, ADMIN2];
 
 const userMemory = {};
