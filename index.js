@@ -13,8 +13,7 @@ const ALI_APP_KEY = '533908';
 const TRIGGER_WORDS = [
   'אני מחפש', 'אני מחפשת', 'חפש לי', 'חפשי לי', 'מישהו מכיר',
   'מישהי מכירה', 'אני צריך', 'אני צריכה', 'מחפש', 'מחפשת',
-  'יש מוצר', 'מחפש משהו', 'מחפשת משהו', 'איפה אפשר לקנות',
-  'רוצה לקנות'
+  'יש מוצר', 'איפה אפשר לקנות', 'רוצה לקנות'
 ];
 
 const TRANSLATIONS = {
@@ -37,19 +36,10 @@ function translateToEnglish(text) {
   return result;
 }
 
-async function shortenUrl(longUrl) {
-  try {
-    const response = await axios.get(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(longUrl)}`, { timeout: 5000 });
-    return response.data;
-  } catch (error) {
-    return longUrl;
-  }
-}
-
 function buildSearchLink(query) {
   const englishQuery = translateToEnglish(query);
   const encoded = encodeURIComponent(englishQuery);
-  return `https://www.aliexpress.com/wholesale?SearchText=${encoded}&SortType=total_tranpro_desc&aff_platform=portals-tool&sk=_dV4Bh9T&aff_trace_key=${ALI_TRACKING_ID}&terminal_id=${ALI_APP_KEY}`;
+  return `https://s.click.aliexpress.com/e/_mKNvwEU?SearchText=${encoded}&aff_trace_key=${ALI_TRACKING_ID}&terminal_id=${ALI_APP_KEY}`;
 }
 
 async function sendWhatsAppMessage(chatId, message) {
@@ -91,13 +81,13 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    await sendWhatsAppMessage(chatId, `🔍 מחפש *${searchQuery}*... רגע!`);
+    await sendWhatsAppMessage(chatId, `🔍 מחפש *${searchQuery}*... רגע אחד!`);
     await sleep(3000);
 
-    const longLink = buildSearchLink(searchQuery);
-    const shortLink = await shortenUrl(longLink);
+    const encodedQuery = encodeURIComponent(translateToEnglish(searchQuery));
+    const link = `https://www.aliexpress.com/wholesale?SearchText=${encodedQuery}&SortType=total_tranpro_desc&aff_platform=portals-tool&sk=_dV4Bh9T&aff_trace_key=${ALI_TRACKING_ID}&terminal_id=${ALI_APP_KEY}`;
 
-    const message = `✅ *מצאתי עבורך ${searchQuery}!*\n\n👇 לחץ לראות את הדילים הכי טובים:\n${shortLink}\n\n🔥 מחירים מטורפים!`;
+    const message = `✅ *מצאתי עבורך ${searchQuery}!*\n\n👇 לחץ לראות דילים:\n${link}\n\n🔥 מחירים מטורפים!`;
 
     await sendWhatsAppMessage(chatId, message);
   } catch (error) {
