@@ -10,15 +10,26 @@ const GREEN_API_URL = `https://7107.api.greenapi.com/waInstance${INSTANCE_ID}`;
 const ALI_TRACKING_ID = 'bot01';
 const ALI_APP_KEY = '533908';
 
-const TRIGGER_WORDS = ['אני מחפש', 'חפש לי', 'מישהו מכיר', 'אני צריך', 'מחפש'];
+const TRIGGER_WORDS = [
+  'אני מחפש', 'אני מחפשת', 'חפש לי', 'חפשי לי', 'מישהו מכיר',
+  'מישהי מכירה', 'אני צריך', 'אני צריכה', 'מחפש', 'מחפשת',
+  'יש מוצר', 'מחפש משהו', 'מחפשת משהו', 'איפה אפשר לקנות',
+  'מישהו יודע איפה', 'מישהי יודעת איפה', 'רוצה לקנות', 'רוצה לקנות'
+];
 
 const TRANSLATIONS = {
   'אוזניות': 'earphones', 'בלוטות': 'bluetooth', 'נעליים': 'shoes',
-  'שעון': 'watch', 'טלפון': 'phone', 'מטען': 'charger', 'כיסא': 'chair',
-  'מאוורר': 'fan', 'מצלמה': 'camera', 'תיק': 'bag', 'בגדים': 'clothes',
-  'צמיד': 'bracelet', 'טבעת': 'ring', 'משקפיים': 'glasses', 'ספורט': 'sport',
-  'ילדים': 'kids', 'צעצוע': 'toy', 'מטבח': 'kitchen', 'עט': 'pen',
-  'מחשב': 'computer', 'לפטופ': 'laptop', 'אוזניה': 'earphone', 'זול': 'cheap'
+  'נעל': 'shoes', 'שעון': 'watch', 'שעונים': 'watches', 'טלפון': 'phone',
+  'מטען': 'charger', 'כיסא': 'chair', 'מאוורר': 'fan', 'מצלמה': 'camera',
+  'תיק': 'bag', 'תיקים': 'bags', 'בגדים': 'clothes', 'צמיד': 'bracelet',
+  'טבעת': 'ring', 'משקפיים': 'glasses', 'ספורט': 'sport', 'ילדים': 'kids',
+  'צעצוע': 'toy', 'מטבח': 'kitchen', 'עט': 'pen', 'מחשב': 'computer',
+  'לפטופ': 'laptop', 'אוזניה': 'earphone', 'זול': 'cheap', 'כפפות': 'gloves',
+  'מסכה': 'mask', 'טאבלט': 'tablet', 'רמקול': 'speaker', 'מקלדת': 'keyboard',
+  'עכבר': 'mouse', 'מנורה': 'lamp', 'שמיכה': 'blanket', 'כרית': 'pillow',
+  'מראה': 'mirror', 'מברשת': 'brush', 'בושם': 'perfume', 'קרם': 'cream',
+  'שמפו': 'shampoo', 'סבון': 'soap', 'גרביים': 'socks', 'חגורה': 'belt',
+  'ארנק': 'wallet', 'מטריה': 'umbrella', 'כובע': 'hat', 'צעיף': 'scarf'
 };
 
 function translateToEnglish(text) {
@@ -27,6 +38,12 @@ function translateToEnglish(text) {
     result = result.replace(new RegExp(hebrew, 'g'), english);
   }
   return result;
+}
+
+function buildSearchLink(query) {
+  const englishQuery = translateToEnglish(query);
+  const encoded = encodeURIComponent(englishQuery);
+  return `https://www.aliexpress.com/wholesale?SearchText=${encoded}&SortType=total_tranpro_desc&aff_platform=portals-tool&sk=_dV4Bh9T&aff_trace_key=${ALI_TRACKING_ID}&terminal_id=${ALI_APP_KEY}`;
 }
 
 async function sendWhatsAppMessage(chatId, message) {
@@ -40,15 +57,8 @@ async function sendWhatsAppMessage(chatId, message) {
   }
 }
 
-function buildLinks(query) {
-  const englishQuery = translateToEnglish(query);
-  const encoded = encodeURIComponent(englishQuery);
-  const base = `aff_platform=portals-tool&sk=_dV4Bh9T&aff_trace_key=${ALI_TRACKING_ID}&terminal_id=${ALI_APP_KEY}`;
-  
-  return {
-    search: `https://www.aliexpress.com/wholesale?SearchText=${encoded}&SortType=total_tranpro_desc&${base}`,
-    english: englishQuery
-  };
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 app.post('/webhook', async (req, res) => {
@@ -71,16 +81,16 @@ app.post('/webhook', async (req, res) => {
     }
 
     if (!searchQuery || searchQuery.length < 2) {
-      await sendWhatsAppMessage(chatId, 'כתוב למשל: אני מחפש אוזניות בלוטות');
+      await sendWhatsAppMessage(chatId, 'כתוב למשל: אני מחפש אוזניות בלוטות 🎧');
       return;
     }
 
-    const { search, english } = buildLinks(searchQuery);
+    await sendWhatsAppMessage(chatId, `🔍 מחפש *${searchQuery}* באלי אקספרס...`);
     
-    const message = `🛍️ תוצאות עבור: *${searchQuery}*\n\n` +
-      `לחץ על הלינק לראות את המוצרים הכי נמכרים:\n\n` +
-      `👉 ${search}\n\n` +
-      `_קנייה דרך הלינק = עמלה לקבוצה_ 💰`;
+    await sleep(3000);
+
+    const link = buildSearchLink(searchQuery);
+    const message = `✅ מצאתי!\n\nהנה המוצרים הכי טובים עבור *${searchQuery}*:\n\n👉 ${link}\n\n🔥 מחירים מטורפים! לחץ לראות`;
 
     await sendWhatsAppMessage(chatId, message);
   } catch (error) {
