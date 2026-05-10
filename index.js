@@ -1,4 +1,4 @@
-const express = require('express');
+aconst express = require('express');
 const axios = require('axios');
 
 const app = express();
@@ -9,11 +9,15 @@ const API_TOKEN = 'aaf1035940284f4e80553c38cee6ffadd2704e160e1e4895ae';
 const GREEN_API_URL = `https://7107.api.greenapi.com/waInstance${INSTANCE_ID}`;
 const ALI_TRACKING_ID = 'bot01';
 const ALI_APP_KEY = '533908';
-const OWNER_PHONE = '972538800370@c.us';
-const GROUP_ID = 'KOL2v0rh8LH3RgfQIVr8gq';
+const GROUP_CHAT_ID = 'KOL2v0rh8LH3RgfQIVr8gq@g.us';
+
+const ADMINS = ['972538800370@c.us', '972557119650@c.us'];
 
 const userMemory = {};
 const searchCount = {};
+const frozenUsers = new Set();
+const vipUsers = new Set();
+const warningCount = {};
 
 const TRIGGER_WORDS = [
   'אני מחפש', 'אני מחפשת', 'חפש לי', 'חפשי לי',
@@ -24,8 +28,14 @@ const TRIGGER_WORDS = [
 
 const BAD_WORDS = [
   'זין', 'כוס', 'שרמוטה', 'בן זונה', 'מניאק', 'זונה',
-  'לך תזדיין', 'ממזר', 'חמור', 'אידיוט',
-  'fuck', 'shit', 'bitch', 'asshole', 'bastard'
+  'לך תזדיין', 'ממזר', 'אידיוט', 'טמבל', 'מפגר',
+  'fuck', 'shit', 'bitch', 'asshole', 'bastard', 'idiot'
+];
+
+const SPAM_WORDS = [
+  'הצטרפו', 'לינק', 'קבוצה חדשה', 'דרושים', 'מבצע מיוחד',
+  'ווטסאפ', 'טלגרם', 'השקעה', 'הרוויחו', 'עשירים',
+  'קליק', 'ביטקוין', 'הימור', 'קזינו'
 ];
 
 const TRANSLATIONS = {
@@ -40,16 +50,35 @@ const TRANSLATIONS = {
   'עכבר': 'mouse', 'מנורה': 'lamp', 'שמיכה': 'blanket',
   'כרית': 'pillow', 'ארנק': 'wallet', 'כובע': 'hat',
   'גרביים': 'socks', 'חגורה': 'belt', 'מראה': 'mirror',
-  'בושם': 'perfume', 'קרם': 'cream', 'שמפו': 'shampoo'
+  'בושם': 'perfume', 'קרם': 'cream', 'שמפו': 'shampoo',
+  'אופניים': 'bicycle', 'קורקינט': 'scooter', 'משקולות': 'dumbbells',
+  'יוגה': 'yoga mat', 'שטיח': 'carpet', 'וילון': 'curtain'
 };
 
 const FUNNY_RESPONSES = {
-  'כיסא': 'כיסא? בטח אחרי שעמדת כל היום! 😂',
-  'שמיכה': 'שמיכה? קר לך? 🥶',
-  'בושם': 'מישהו רוצה להריח טוב! 😏',
-  'טבעת': 'מישהו מתחתן?! 💍😄',
-  'צעצוע': 'בשביל הילדים... או בשבילך? 😄'
+  'כיסא': '😂 כיסא? בטח אחרי שעמדת כל היום!',
+  'שמיכה': '🥶 שמיכה? קר לך?',
+  'בושם': '😏 מישהו רוצה להריח טוב!',
+  'טבעת': '💍😄 מישהו מתחתן?!',
+  'צעצוע': '😄 בשביל הילדים... או בשבילך?',
+  'כרית': '😴 מישהו רוצה לישון?',
+  'מראה': '😎 מישהו אוהב להסתכל על עצמו!',
+  'אופניים': '🚴 יאללה ספורטאי!'
 };
+
+const JOKES = [
+  'למה הסלמון שחה נגד הזרם? כי הוא לא רצה לקנות דגים קפואים מאלי אקספרס! 😂',
+  'מה ההבדל בין אמא לאלי אקספרס? אמא תמיד מגיעה בזמן! 😄',
+  'למה הבוט שלי לא ישן? כי הדילים לא ישנים! 🔥',
+  'מה אמר הארנק לכרטיס האשראי? אני מרגיש ריק... כנראה קנו שוב באלי! 💸'
+];
+
+const FACTS = [
+  '💡 ידעתם? אלי אקספרס מוכר מעל 100 מיליון מוצרים!',
+  '💡 ידעתם? 60% מהמוצרים באלי אקספרס מגיעים תוך 2 שבועות!',
+  '💡 ידעתם? ניתן לחסוך עד 80% לעומת מחירים בישראל!',
+  '💡 ידעתם? אלי אקספרס מציע החזר כספי מלא אם המוצר לא הגיע!'
+];
 
 function translateToEnglish(text) {
   let result = text;
@@ -76,12 +105,16 @@ async function sendMessage(chatId, message) {
   }
 }
 
+async function sendToAdmins(message) {
+  for (const admin of ADMINS) {
+    await sendMessage(admin, message);
+  }
+}
+
 async function sendTyping(chatId) {
   try {
-    await axios.post(`${GREEN_API_URL}/sendTyping/${API_TOKEN}`, {
-      chatId: chatId
-    });
-  } catch (error) {}
+    await axios.post(`${GREEN_API_URL}/sendTyping/${API_TOKEN}`, { chatId });
+  } catch (e) {}
 }
 
 function sleep(ms) {
@@ -89,15 +122,20 @@ function sleep(ms) {
 }
 
 function containsBadWord(text) {
-  const lowerText = text.toLowerCase();
-  return BAD_WORDS.some(word => lowerText.includes(word.toLowerCase()));
+  return BAD_WORDS.some(word => text.toLowerCase().includes(word.toLowerCase()));
 }
 
-function getHeatEmoji(score) {
-  if (score >= 5) return '🔥🔥🔥🔥🔥';
-  if (score >= 4) return '🔥🔥🔥🔥';
-  if (score >= 3) return '🔥🔥🔥';
-  return '🔥🔥';
+function containsSpam(text) {
+  return SPAM_WORDS.some(word => text.includes(word));
+}
+
+function isAdmin(phone) {
+  return ADMINS.includes(phone);
+}
+
+function getHeat() {
+  const score = Math.floor(Math.random() * 3) + 3;
+  return '🔥'.repeat(score);
 }
 
 function getTimeGreeting() {
@@ -105,118 +143,284 @@ function getTimeGreeting() {
   if (hour >= 6 && hour < 12) return '☀️ בוקר טוב!';
   if (hour >= 12 && hour < 17) return '🌤️ צהריים טובים!';
   if (hour >= 17 && hour < 21) return '🌆 ערב טוב!';
-  return '🌙 שש... כולם ישנים אבל אני עובד בשבילך...';
+  return '🌙 שש... כולם ישנים אבל אני עובד בשבילך!';
 }
 
-function getKingOfGroup() {
-  let king = null;
-  let maxCount = 0;
+function getKing() {
+  let king = null, max = 0;
   for (const [phone, count] of Object.entries(searchCount)) {
-    if (count > maxCount) {
-      maxCount = count;
-      king = phone;
-    }
+    if (count > max) { max = count; king = phone; }
   }
-  return { king, maxCount };
+  return { king, max };
 }
 
-function scheduleDaily() {
-  const now = new Date();
-  const next10am = new Date();
-  next10am.setHours(10, 0, 0, 0);
-  if (now >= next10am) next10am.setDate(next10am.getDate() + 1);
+// ===== פקודות מנהל =====
+async function handleAdminCommand(text, senderPhone) {
+  const cmd = text.trim();
 
-  setTimeout(async () => {
-    const deals = [
-      { name: 'אוזניות בלוטות', query: 'bluetooth earphones', saving: 120 },
-      { name: 'שעון חכם', query: 'smart watch', saving: 250 },
-      { name: 'מטען מהיר', query: 'fast charger', saving: 80 },
-      { name: 'רמקול בלוטות', query: 'bluetooth speaker', saving: 150 },
-      { name: 'מצלמת אבטחה', query: 'security camera wifi', saving: 200 }
-    ];
-    const deal = deals[Math.floor(Math.random() * deals.length)];
-    const link = buildSearchLink(deal.query);
-    const heat = getHeatEmoji(Math.floor(Math.random() * 3) + 3);
-    const groupChatId = `${GROUP_ID}@g.us`;
+  if (cmd === '!דיל') {
+    await sendDailyDeal();
+    await sendMessage(senderPhone, '✅ דיל יומי נשלח לקבוצה!');
+    return true;
+  }
 
-    await sendMessage(groupChatId,
-      `🚨 *דיל היום!* 🚨\n\n` +
-      `הדיל הכי חם: *${deal.name}*\n\n` +
-      `🌡️ חום הדיל: ${heat}\n` +
-      `💰 חיסכון לעומת ישראל: *₪${deal.saving}*\n\n` +
-      `👉 ${link}\n\n` +
-      `⚡ אל תפספסו!`
+  if (cmd === '!סקר') {
+    await sendWeeklyPoll();
+    await sendMessage(senderPhone, '✅ סקר נשלח לקבוצה!');
+    return true;
+  }
+
+  if (cmd === '!הפתעה') {
+    await sendSurpriseBox();
+    await sendMessage(senderPhone, '✅ קופסת הפתעה נשלחה!');
+    return true;
+  }
+
+  if (cmd === '!מלך') {
+    await announceKing();
+    await sendMessage(senderPhone, '✅ מלך הקבוצה הוכרז!');
+    return true;
+  }
+
+  if (cmd === '!מצב') {
+    const total = Object.values(searchCount).reduce((a, b) => a + b, 0);
+    const frozen = frozenUsers.size;
+    const vip = vipUsers.size;
+    await sendMessage(senderPhone,
+      `📊 *סטטוס הבוט:*\n\n` +
+      `🔍 סה"כ חיפושים: ${total}\n` +
+      `❄️ משתמשים מוקפאים: ${frozen}\n` +
+      `👑 VIP: ${vip}\n` +
+      `👥 משתמשים פעילים: ${Object.keys(searchCount).length}`
     );
-    scheduleDaily();
-  }, next10am - now);
-}
+    return true;
+  }
 
-function scheduleWeeklyPoll() {
-  const now = new Date();
-  const nextSunday = new Date();
-  nextSunday.setDate(now.getDate() + (7 - now.getDay()));
-  nextSunday.setHours(11, 0, 0, 0);
+  if (cmd === '!ניקוי') {
+    Object.keys(searchCount).forEach(k => delete searchCount[k]);
+    await sendMessage(senderPhone, '✅ כל הספירות אופסו!');
+    return true;
+  }
 
-  setTimeout(async () => {
-    const groupChatId = `${GROUP_ID}@g.us`;
-    await sendMessage(groupChatId,
-      `📊 *סקר שבועי!*\n\n` +
-      `מה הכי מעניין אתכם?\n\n` +
-      `1️⃣ אוזניות ואביזרי אודיו\n` +
-      `2️⃣ שעונים חכמים\n` +
-      `3️⃣ מוצרי בית וגאדג'טים\n` +
-      `4️⃣ ביגוד ואופנה\n` +
-      `5️⃣ מוצרי ספורט\n` +
-      `6️⃣ אלקטרוניקה\n\n` +
-      `ענו עם המספר! 👇`
+  if (cmd === '!בדיחה') {
+    const joke = JOKES[Math.floor(Math.random() * JOKES.length)];
+    await sendMessage(GROUP_CHAT_ID, `😂 *בדיחת היום:*\n\n${joke}`);
+    await sendMessage(senderPhone, '✅ בדיחה נשלחה!');
+    return true;
+  }
+
+  if (cmd === '!עובדה') {
+    const fact = FACTS[Math.floor(Math.random() * FACTS.length)];
+    await sendMessage(GROUP_CHAT_ID, fact);
+    await sendMessage(senderPhone, '✅ עובדה נשלחה!');
+    return true;
+  }
+
+  if (cmd.startsWith('!הקפא ')) {
+    const phone = cmd.replace('!הקפא ', '').replace('+', '972').replace(/-/g, '') + '@c.us';
+    frozenUsers.add(phone);
+    await sendMessage(GROUP_CHAT_ID, `❄️ משתמש הוקפא זמנית על ידי המנהל.`);
+    await sendMessage(senderPhone, `✅ ${phone} הוקפא!`);
+    return true;
+  }
+
+  if (cmd.startsWith('!שחרר ')) {
+    const phone = cmd.replace('!שחרר ', '').replace('+', '972').replace(/-/g, '') + '@c.us';
+    frozenUsers.delete(phone);
+    await sendMessage(senderPhone, `✅ ${phone} שוחרר!`);
+    return true;
+  }
+
+  if (cmd.startsWith('!VIP ')) {
+    const phone = cmd.replace('!VIP ', '').replace('+', '972').replace(/-/g, '') + '@c.us';
+    vipUsers.add(phone);
+    await sendMessage(GROUP_CHAT_ID, `👑 *מזל טוב!*\n@${phone.replace('@c.us', '')} קיבל/ה תג VIP בקבוצה! 🌟`);
+    await sendMessage(senderPhone, `✅ VIP ניתן!`);
+    return true;
+  }
+
+  if (cmd.startsWith('!אזהרה ')) {
+    const phone = cmd.replace('!אזהרה ', '').replace('+', '972').replace(/-/g, '') + '@c.us';
+    await sendMessage(phone,
+      `⚠️ *אזהרה מהמנהל!*\n\n` +
+      `קיבלת אזהרה רשמית מניהול הקבוצה.\n` +
+      `אנא שמור על כללי הקבוצה 🙏`
     );
-    scheduleWeeklyPoll();
-  }, nextSunday - now);
+    await sendMessage(senderPhone, `✅ אזהרה נשלחה!`);
+    return true;
+  }
+
+  if (cmd.startsWith('!כבוד ')) {
+    const phone = cmd.replace('!כבוד ', '').replace('+', '972').replace(/-/g, '') + '@c.us';
+    await sendMessage(GROUP_CHAT_ID,
+      `🏆 *גיבור הקבוצה!*\n\n` +
+      `@${phone.replace('@c.us', '')} הוא/היא הגיבור/ת שלנו היום! 🌟\n` +
+      `תודה על התרומה לקבוצה! ❤️`
+    );
+    await sendMessage(senderPhone, `✅ כבוד ניתן!`);
+    return true;
+  }
+
+  if (cmd.startsWith('!הודעה ')) {
+    const msg = cmd.replace('!הודעה ', '');
+    await sendMessage(GROUP_CHAT_ID, `📢 *הודעה מהמנהל:*\n\n${msg}`);
+    await sendMessage(senderPhone, `✅ הודעה נשלחה!`);
+    return true;
+  }
+
+  if (cmd === '!מצב לילה') {
+    await sendMessage(GROUP_CHAT_ID, `🌙 *מצב לילה פעיל*\n\nשקט... הבוט עובד בלחישות עד הבוקר 😴`);
+    await sendMessage(senderPhone, `✅ מצב לילה הופעל!`);
+    return true;
+  }
+
+  if (cmd === '!מצב טירוף') {
+    await sendMessage(GROUP_CHAT_ID, `🔥🤯💥 *מצב טירוף פעיל!* 💥🤯🔥\n\nהבוט במצב אנרגיה מקסימלית! יאללה תחפשו דילים! 🚀🎯💰`);
+    await sendMessage(senderPhone, `✅ מצב טירוף הופעל!`);
+    return true;
+  }
+
+  if (cmd === '!תחרות') {
+    await sendMessage(GROUP_CHAT_ID,
+      `🏆 *תחרות דילים!*\n\n` +
+      `מי ימצא את הדיל הכי זול השבוע?\n\n` +
+      `חפשו מוצר, שלחו לינק עם המחיר!\n` +
+      `הזוכה מקבל תג 👑 VIP בקבוצה!\n\n` +
+      `יאללה תתחילו! 🔥`
+    );
+    await sendMessage(senderPhone, `✅ תחרות הושקה!`);
+    return true;
+  }
+
+  if (cmd === '!עזרה') {
+    await sendMessage(senderPhone,
+      `📋 *פקודות מנהל:*\n\n` +
+      `!דיל - שלח דיל יומי\n` +
+      `!סקר - שלח סקר\n` +
+      `!הפתעה - קופסת הפתעה\n` +
+      `!מלך - הכרז מלך\n` +
+      `!מצב - סטטוס בוט\n` +
+      `!ניקוי - אפס ספירות\n` +
+      `!בדיחה - שלח בדיחה\n` +
+      `!עובדה - שלח עובדה\n` +
+      `!הקפא [מספר] - הקפא משתמש\n` +
+      `!שחרר [מספר] - שחרר משתמש\n` +
+      `!VIP [מספר] - תן VIP\n` +
+      `!אזהרה [מספר] - שלח אזהרה\n` +
+      `!כבוד [מספר] - הכרז גיבור\n` +
+      `!הודעה [טקסט] - שלח הודעה\n` +
+      `!מצב לילה - מצב שקט\n` +
+      `!מצב טירוף - מצב אנרגיה\n` +
+      `!תחרות - פתח תחרות`
+    );
+    return true;
+  }
+
+  return false;
 }
 
-function scheduleKingAnnouncement() {
-  const now = new Date();
-  const nextSunday = new Date();
-  nextSunday.setDate(now.getDate() + (7 - now.getDay()));
-  nextSunday.setHours(12, 0, 0, 0);
+// ===== דיל יומי =====
+async function sendDailyDeal() {
+  const deals = [
+    { name: 'אוזניות בלוטות פרו', query: 'bluetooth earphones pro', saving: 120 },
+    { name: 'שעון חכם 2024', query: 'smart watch 2024', saving: 250 },
+    { name: 'מטען מהיר 65W', query: 'fast charger 65w', saving: 80 },
+    { name: 'רמקול בלוטות עמיד למים', query: 'waterproof bluetooth speaker', saving: 150 },
+    { name: 'מצלמת אבטחה WiFi', query: 'security camera wifi 4k', saving: 200 },
+    { name: 'מנורת LED חכמה', query: 'smart led lamp rgb', saving: 60 },
+    { name: 'כיסא גיימינג', query: 'gaming chair ergonomic', saving: 300 }
+  ];
+  const deal = deals[Math.floor(Math.random() * deals.length)];
+  const link = buildSearchLink(deal.query);
 
-  setTimeout(async () => {
-    const { king, maxCount } = getKingOfGroup();
-    const groupChatId = `${GROUP_ID}@g.us`;
-    if (king && maxCount > 0) {
-      await sendMessage(groupChatId,
-        `👑 *מלך/מלכת הקבוצה השבוע!*\n\n` +
-        `@${king.replace('@c.us', '')} חיפש/ה *${maxCount}* פעמים!\n\n` +
-        `🏆 כל הכבוד! אתה/את המחפש/ת הכי פעיל/ה! 🔥`
-      );
-    }
-    Object.keys(searchCount).forEach(key => delete searchCount[key]);
-    scheduleKingAnnouncement();
-  }, nextSunday - now);
+  await sendMessage(GROUP_CHAT_ID,
+    `🚨 *דיל היום!* 🚨\n\n` +
+    `הדיל הכי חם: *${deal.name}*\n\n` +
+    `🌡️ חום הדיל: ${getHeat()}\n` +
+    `💰 חיסכון לעומת ישראל: *₪${deal.saving}*\n\n` +
+    `👉 ${link}\n\n` +
+    `⚡ המחיר לא יחזיק לאורך זמן!`
+  );
 }
 
-function scheduleSurpriseBox() {
+// ===== סקר =====
+async function sendWeeklyPoll() {
+  await sendMessage(GROUP_CHAT_ID,
+    `📊 *סקר שבועי!*\n\n` +
+    `מה הכי מעניין אתכם?\n\n` +
+    `1️⃣ אוזניות ואביזרי אודיו\n` +
+    `2️⃣ שעונים חכמים\n` +
+    `3️⃣ מוצרי בית וגאדג'טים\n` +
+    `4️⃣ ביגוד ואופנה\n` +
+    `5️⃣ מוצרי ספורט\n` +
+    `6️⃣ אלקטרוניקה\n\n` +
+    `ענו עם המספר! 👇`
+  );
+}
+
+// ===== קופסת הפתעה =====
+async function sendSurpriseBox() {
   const surprises = [
     { name: 'גאדג\'ט מטורף', query: 'cool gadget 2024' },
     { name: 'מוצר ויראלי', query: 'viral product tiktok' },
     { name: 'המצאה מדהימה', query: 'amazing invention cheap' },
     { name: 'מוצר חכם לבית', query: 'smart home gadget' }
   ];
+  const surprise = surprises[Math.floor(Math.random() * surprises.length)];
+  const link = buildSearchLink(surprise.query);
 
-  setInterval(async () => {
-    const surprise = surprises[Math.floor(Math.random() * surprises.length)];
-    const link = buildSearchLink(surprise.query);
-    const groupChatId = `${GROUP_ID}@g.us`;
-    await sendMessage(groupChatId,
-      `🎁 *קופסת הפתעה שבועית!*\n\n` +
-      `מצאתי לכם משהו מטורף 🤯\n` +
-      `*${surprise.name}* — המחיר יפיל אתכם!\n\n` +
-      `👉 ${link}\n\n` +
-      `מי ראה כזה דבר?! 😱`
-    );
-  }, 7 * 24 * 60 * 60 * 1000);
+  await sendMessage(GROUP_CHAT_ID,
+    `🎁 *קופסת הפתעה!*\n\n` +
+    `מצאתי לכם משהו מטורף 🤯\n` +
+    `*${surprise.name}* — המחיר יפיל אתכם!\n\n` +
+    `👉 ${link}\n\n` +
+    `מי ראה כזה דבר?! 😱`
+  );
 }
 
+// ===== מלך הקבוצה =====
+async function announceKing() {
+  const { king, max } = getKing();
+  if (king && max > 0) {
+    await sendMessage(GROUP_CHAT_ID,
+      `👑 *מלך/מלכת הקבוצה!*\n\n` +
+      `@${king.replace('@c.us', '')} חיפש/ה *${max}* פעמים!\n\n` +
+      `🏆 כל הכבוד! אתה/את המחפש/ת הכי פעיל/ה! 🔥`
+    );
+    Object.keys(searchCount).forEach(k => delete searchCount[k]);
+  }
+}
+
+// ===== לוחות זמנים =====
+function scheduleDaily() {
+  const now = new Date();
+  const next = new Date();
+  next.setHours(10, 0, 0, 0);
+  if (now >= next) next.setDate(next.getDate() + 1);
+  setTimeout(async () => { await sendDailyDeal(); scheduleDaily(); }, next - now);
+}
+
+function scheduleWeeklyPoll() {
+  const now = new Date();
+  const next = new Date();
+  next.setDate(now.getDate() + (7 - now.getDay()));
+  next.setHours(11, 0, 0, 0);
+  setTimeout(async () => { await sendWeeklyPoll(); scheduleWeeklyPoll(); }, next - now);
+}
+
+function scheduleKing() {
+  const now = new Date();
+  const next = new Date();
+  next.setDate(now.getDate() + (7 - now.getDay()));
+  next.setHours(12, 0, 0, 0);
+  setTimeout(async () => { await announceKing(); scheduleKing(); }, next - now);
+}
+
+function scheduleSurprise() {
+  setInterval(async () => { await sendSurpriseBox(); }, 7 * 24 * 60 * 60 * 1000);
+}
+
+// ===== Webhook =====
 app.post('/webhook', async (req, res) => {
   res.sendStatus(200);
   try {
@@ -232,32 +436,60 @@ app.post('/webhook', async (req, res) => {
 
     if (!text || !chatId) return;
 
-    if (containsBadWord(text)) {
-      // הודעה לקבוצה
+    // ===== פקודות מנהל =====
+    if (isAdmin(senderPhone) && text.startsWith('!')) {
+      await handleAdminCommand(text, senderPhone);
+      return;
+    }
+
+    // ===== משתמש מוקפא =====
+    if (frozenUsers.has(senderPhone)) return;
+
+    // ===== זיהוי ספאם =====
+    if (containsSpam(text)) {
       await sendMessage(chatId,
-        `⚠️ @${senderPhone.replace('@c.us', '')} שים לב!\n` +
-        `שפה כזו לא מתאימה כאן 🙏\n` +
-        `שלחתי לך הודעה פרטית.`
+        `🚫 @${senderPhone.replace('@c.us', '')} זוהה ספאם/פרסומת!\n` +
+        `פרסומות אסורות בקבוצה 🙏`
       );
-      // הודעה פרטית לאותו בן אדם
-      await sendMessage(senderPhone,
-        `שלום ${senderName} 👋\n\n` +
-        `קיבלתי את ההודעה שלך בקבוצה ורציתי לדבר איתך בפרטיות.\n\n` +
-        `השפה שהשתמשת בה לא הולמת את האווירה שאנחנו רוצים בקבוצה 🙏\n\n` +
-        `אנחנו קבוצה של חברים שאוהבים דילים ומבקשים מכולם להתנהג בכבוד הדדי.\n\n` +
-        `אני בטוח שזה לא מה שאתה רוצה להציג מעצמך 😊\n` +
-        `בוא נמשיך ביחד בצורה נעימה! 🤝`
-      );
-      // התראה לבעל הקבוצה
-      await sendMessage(OWNER_PHONE,
-        `🚨 *התראה!*\n` +
-        `${senderName} (${senderPhone.replace('@c.us', '')}) כתב קללה:\n` +
-        `"${text}"\n\n` +
-        `שלחתי לו הודעה פרטית.`
+      await sendToAdmins(
+        `🚨 *התראת ספאם!*\n` +
+        `${senderName} שלח פרסומת:\n"${text}"`
       );
       return;
     }
 
+    // ===== זיהוי קללות =====
+    if (containsBadWord(text)) {
+      warningCount[senderPhone] = (warningCount[senderPhone] || 0) + 1;
+      const warnings = warningCount[senderPhone];
+
+      await sendMessage(chatId,
+        `⚠️ @${senderPhone.replace('@c.us', '')} אזהרה ${warnings}/3!\n` +
+        `שפה לא הולמת אסורה בקבוצה 🙏\n` +
+        `שלחתי לך הודעה פרטית.`
+      );
+
+      await sendMessage(senderPhone,
+        `שלום ${senderName} 👋\n\n` +
+        `זוהי אזהרה מספר *${warnings}* מתוך 3.\n\n` +
+        `השפה שהשתמשת בה לא מתאימה לקבוצה שלנו 🙏\n` +
+        `אנחנו קבוצה של חברים — בוא נשמור על כבוד!\n\n` +
+        `${warnings >= 3 ? '⛔ זוהי אזהרה אחרונה! הפעם הבאה תוקפא!' : '😊 בוא נמשיך ביחד בצורה נעימה!'}`
+      );
+
+      if (warnings >= 3) {
+        frozenUsers.add(senderPhone);
+        await sendMessage(chatId, `❄️ @${senderPhone.replace('@c.us', '')} הוקפא אוטומטית!`);
+      }
+
+      await sendToAdmins(
+        `🚨 *התראת קללה!*\n` +
+        `${senderName} (אזהרה ${warnings}/3):\n"${text}"`
+      );
+      return;
+    }
+
+    // ===== חיפוש מוצר =====
     const triggerWord = TRIGGER_WORDS.find(word => text.includes(word));
     if (!triggerWord) return;
 
@@ -267,7 +499,7 @@ app.post('/webhook', async (req, res) => {
     }
 
     if (!searchQuery || searchQuery.length < 2) {
-      await sendMessage(chatId, 'כתוב למשל: אני מחפש אוזניות בלוטות 🎧');
+      await sendMessage(chatId, '🎧 כתוב למשל: אני מחפש אוזניות בלוטות');
       return;
     }
 
@@ -276,32 +508,36 @@ app.post('/webhook', async (req, res) => {
     searchCount[senderPhone] = (searchCount[senderPhone] || 0) + 1;
 
     const totalSearches = searchCount[senderPhone];
-    const mention = senderPhone ? `@${senderPhone.replace('@c.us', '')}` : senderName;
+    const mention = `@${senderPhone.replace('@c.us', '')}`;
+    const isVIP = vipUsers.has(senderPhone);
     const greeting = getTimeGreeting();
     const link = buildSearchLink(searchQuery);
-    const heat = getHeatEmoji(Math.floor(Math.random() * 3) + 3);
     const saving = Math.floor(Math.random() * 200) + 50;
-
     const funnyResponse = Object.entries(FUNNY_RESPONSES).find(([key]) => searchQuery.includes(key));
 
     await sendTyping(chatId);
-    await sendMessage(chatId, `${greeting} ${mention}!\n🔍 מחפש *${searchQuery}*... רגע אחד!`);
+    await sendMessage(chatId,
+      `${greeting} ${mention}${isVIP ? ' 👑' : ''}!\n🔍 מחפש *${searchQuery}*... רגע!`
+    );
     await sleep(2000);
     await sendTyping(chatId);
     await sleep(1500);
 
-    let message = `${mention} ✅ *מצאתי עבורך ${searchQuery}!*\n\n`;
-    if (funnyResponse) message += `😂 ${funnyResponse[1]}\n\n`;
-    message += `🌡️ חום הדיל: ${heat}\n`;
+    let message = `${mention}${isVIP ? ' 👑 VIP' : ''} ✅ *מצאתי עבורך ${searchQuery}!*\n\n`;
+    if (funnyResponse) message += `${funnyResponse[1]}\n\n`;
+    message += `🌡️ חום הדיל: ${getHeat()}\n`;
     message += `💰 חיסכון לעומת ישראל: *₪${saving}*\n\n`;
-    message += `👇 לחץ לראות את הדילים:\n${link}\n\n`;
+    message += `👇 לחץ לראות:\n${link}\n\n`;
     message += `🔥 מחירים מטורפים!`;
 
     if (totalSearches === 5) {
-      message += `\n\n🎉 זה החיפוש ה-5 שלך! אתה מכור לדילים! 😄`;
+      message += `\n\n🎉 החיפוש ה-5 שלך! אתה מכור לדילים! 😄`;
     } else if (totalSearches === 10) {
       message += `\n\n🏆 *10 חיפושים!* אתה מלך/מלכת הדילים! 👑`;
-      await sendMessage(OWNER_PHONE, `🎉 ${senderName} הגיע ל-10 חיפושים!`);
+      await sendToAdmins(`🎉 ${senderName} הגיע ל-10 חיפושים!`);
+    } else if (totalSearches === 20) {
+      vipUsers.add(senderPhone);
+      message += `\n\n🌟 *מדהים! 20 חיפושים!* קיבלת תג VIP! 👑`;
     }
 
     const previousSearches = userMemory[senderPhone] || [];
@@ -327,13 +563,13 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-app.get('/', (req, res) => { res.send('🤖 הבוט הכי חזק פועל!'); });
+app.get('/', (req, res) => { res.send('🤖 הבוט הפרימיום פועל!'); });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log('🚀 הבוט המטורף פועל על פורט ' + PORT);
+  console.log('🚀 הבוט הפרימיום פועל על פורט ' + PORT);
   scheduleDaily();
   scheduleWeeklyPoll();
-  scheduleKingAnnouncement();
-  scheduleSurpriseBox();
+  scheduleKing();
+  scheduleSurprise();
 });
