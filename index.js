@@ -636,7 +636,23 @@ app.post('/webhook', async function(req, res) {
     var chatId = sd.chatId || '';
     var senderPhone = getPhone(senderRaw); 
     
- if (body.typeWebhook === 'groupParticipantsAdded') {
+// זיהוי כניסת חבר חדש מהודעת מערכת
+    if (body.typeWebhook === 'incomingMessageReceived') {
+      var md2 = body.messageData || {};
+      if (md2.typeMessage === 'extendedTextMessage' || md2.typeMessage === 'textMessage') {
+        var msgText = '';
+        if (md2.textMessageData) msgText = md2.textMessageData.textMessage || '';
+        if (md2.extendedTextMessageData) msgText = md2.extendedTextMessageData.text || '';
+        
+        if (msgText.indexOf('הצטרף') !== -1 || msgText.indexOf('הצטרפה') !== -1 || 
+            msgText.indexOf('joined') !== -1) {
+          await startNewUserFlow(senderPhone, senderName);
+          return;
+        }
+      }
+    }
+
+    if (body.typeWebhook === 'groupParticipantsAdded') {
       var newMembers = body.participants || [];
       for (var nm = 0; nm < newMembers.length; nm++) {
         var newPhone = getPhone(newMembers[nm].participant || '');
@@ -645,7 +661,6 @@ app.post('/webhook', async function(req, res) {
       }
       return;
     }
-
     if (body.typeWebhook !== 'incomingMessageReceived') return;
     var md = body.messageData || {};
     if (!md || md.typeMessage !== 'textMessage') return;
