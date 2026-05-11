@@ -1,13 +1,15 @@
 const express = require('express');
 const axios = require('axios');
+const crypto = require('crypto');
 const app = express();
 app.use(express.json());
 
 const INSTANCE_ID = '7107614702';
 const API_TOKEN = 'aaf1035940284f4e80553c38cee6ffadd2704e160e1e4895ae';
 const BASE_URL = 'https://7107.api.greenapi.com';
-const ALI_TRACKING_ID = 'bot01';
 const ALI_APP_KEY = '533908';
+const ALI_APP_SECRET = 'iTd8ZOn3s1xmlJ7fXLoe2XYHBkkaF2dF';
+const ALI_TRACKING_ID = 'bot01';
 const GROUP_CHAT_ID = 'KOL2v0rh8LH3RgfQIVr8gq@g.us';
 const ADMIN_NUMBERS = ['972538800370', '972557119650'];
 
@@ -20,29 +22,28 @@ const warningCount = {};
 const TRIGGER_WORDS = ['אני מחפש','אני מחפשת','חפש לי','חפשי לי','אני צריך','אני צריכה','מחפש','מחפשת','רוצה לקנות','מישהו מכיר','מישהי מכירה','יש מוצר'];
 const BAD_WORDS = ['זין','כוס','שרמוטה','זונה','מניאק','ממזר','אידיוט','טמבל','מפגר','fuck','shit','bitch','asshole','bastard'];
 const SPAM_WORDS = ['הצטרפו','קבוצה חדשה','דרושים','ווטסאפ','טלגרם','השקעה','הרוויחו','ביטקוין','הימור','קזינו'];
-const TRANSLATIONS = {'אוזניות':'earphones','בלוטות':'bluetooth','נעליים':'shoes','שעון':'watch','טלפון':'phone','מטען':'charger','כיסא':'chair','מאוורר':'fan','מצלמה':'camera','תיק':'bag','בגדים':'clothes','צמיד':'bracelet','טבעת':'ring','משקפיים':'glasses','ספורט':'sport','ילדים':'kids','צעצוע':'toy','מטבח':'kitchen','מחשב':'computer','לפטופ':'laptop','טאבלט':'tablet','רמקול':'speaker','מקלדת':'keyboard','עכבר':'mouse','מנורה':'lamp','שמיכה':'blanket','כרית':'pillow','ארנק':'wallet','כובע':'hat','גרביים':'socks','חגורה':'belt','בושם':'perfume'};
 const FUNNY = {'כיסא':'😂 כיסא? בטח אחרי שעמדת כל היום!','שמיכה':'🥶 שמיכה? קר לך?','בושם':'😏 מישהו רוצה להריח טוב!','טבעת':'💍 מישהו מתחתן?!','צעצוע':'😄 בשביל הילדים... או בשבילך?'};
-const JOKES = ['למה הסלמון שחה נגד הזרם? כי הוא לא רצה לקנות דגים קפואים מאלי אקספרס! 😂','מה ההבדל בין אמא לאלי אקספרס? אמא תמיד מגיעה בזמן! 😄','למה הבוט לא ישן? כי הדילים לא ישנים! 🔥'];
-const FACTS = ['💡 ידעתם? אלי אקספרס מוכר מעל 100 מיליון מוצרים!','💡 ידעתם? ניתן לחסוך עד 80% לעומת מחירים בישראל!','💡 ידעתם? אלי אקספרס מציע החזר כספי מלא אם המוצר לא הגיע!'];
+const JOKES = ['למה הסלמון שחה נגד הזרם? כי הוא לא רצה לקנות דגים קפואים מאלי אקספרס! 😂','מה ההבדל בין אמא לאלי אקספרס? אמא תמיד מגיעה בזמן! 😄'];
+const FACTS = ['💡 ידעתם? אלי אקספרס מוכר מעל 100 מיליון מוצרים!','💡 ידעתם? ניתן לחסוך עד 80% לעומת מחירים בישראל!'];
 
-function getPhone(raw) { return raw.replace('c.us','').replace('@','').replace('.','').trim(); }
-function isAdmin(raw) { var p=getPhone(raw); return ADMIN_NUMBERS.indexOf(p)!==-1; }
-function isFrozen(raw) { return frozenUsers.indexOf(getPhone(raw))!==-1; }
-function translateToEnglish(text) { var r=text; for(var k in TRANSLATIONS) r=r.split(k).join(TRANSLATIONS[k]); return r; }
-function buildLink(query) { return 'https://www.aliexpress.com/wholesale?SearchText='+encodeURIComponent(translateToEnglish(query))+'&SortType=total_tranpro_desc&aff_platform=portals-tool&sk=_dV4Bh9T&aff_trace_key='+ALI_TRACKING_ID+'&terminal_id='+ALI_APP_KEY; }
-function getHeat() { var h=''; for(var i=0;i<Math.floor(Math.random()*3)+3;i++) h+='🔥'; return h; }
-function getGreeting() { var h=new Date().getHours(); if(h>=6&&h<12) return '☀️ בוקר טוב!'; if(h>=12&&h<17) return '🌤️ צהריים טובים!'; if(h>=17&&h<21) return '🌆 ערב טוב!'; return '🌙 לילה טוב!'; }
+function getPhone(raw) {
+  return raw.replace('c.us','').replace('@','').replace('.','').trim();
+}
+function isAdmin(raw) { return ADMIN_NUMBERS.indexOf(getPhone(raw)) !== -1; }
+function isFrozen(raw) { return frozenUsers.indexOf(getPhone(raw)) !== -1; }
 function hasBadWord(t) { var l=t.toLowerCase(); for(var i=0;i<BAD_WORDS.length;i++) if(l.indexOf(BAD_WORDS[i].toLowerCase())!==-1) return true; return false; }
 function hasSpam(t) { for(var i=0;i<SPAM_WORDS.length;i++) if(t.indexOf(SPAM_WORDS[i])!==-1) return true; return false; }
+function getHeat() { var h=''; for(var i=0;i<Math.floor(Math.random()*3)+3;i++) h+='🔥'; return h; }
+function getGreeting() { var h=new Date().getHours(); if(h>=6&&h<12) return '☀️ בוקר טוב!'; if(h>=12&&h<17) return '🌤️ צהריים טובים!'; if(h>=17&&h<21) return '🌆 ערב טוב!'; return '🌙 לילה טוב!'; }
 function sleep(ms) { return new Promise(function(r){setTimeout(r,ms);}); }
 
 async function sendMsg(chatId, message) {
   try {
     var url = BASE_URL+'/waInstance'+INSTANCE_ID+'/sendMessage/'+API_TOKEN;
-    var res = await axios.post(url, {chatId:chatId, message:message});
-    console.log('נשלח ל:'+chatId+' | תגובה:'+res.status);
+    await axios.post(url, {chatId:chatId, message:message});
+    console.log('✅ נשלח ל:'+chatId);
   } catch(e) {
-    console.error('שגיאה בשליחה ל:'+chatId+' | '+e.message);
+    console.error('❌ שגיאה בשליחה:'+e.message);
   }
 }
 
@@ -54,10 +55,91 @@ async function sendToAdmins(msg) {
   for(var i=0;i<ADMIN_NUMBERS.length;i++) await sendMsg(ADMIN_NUMBERS[i]+'@c.us', msg);
 }
 
+// ===== חיפוש מוצרים באלי אקספרס API =====
+async function searchAliExpress(query) {
+  try {
+    var timestamp = new Date().toISOString().replace(/[^0-9]/g,'').slice(0,15)+'000';
+    var params = {
+      app_key: ALI_APP_KEY,
+      method: 'aliexpress.affiliate.product.query',
+      sign_method: 'md5',
+      timestamp: timestamp,
+      v: '2.0',
+      keywords: query,
+      tracking_id: ALI_TRACKING_ID,
+      page_size: '6',
+      sort: 'LAST_VOLUME_DESC',
+      fields: 'product_id,product_title,sale_price,evaluate_rate,lastest_volume,promotion_link,product_main_image_url'
+    };
+
+    var sortedKeys = Object.keys(params).sort();
+    var signStr = ALI_APP_SECRET;
+    for(var i=0;i<sortedKeys.length;i++) signStr += sortedKeys[i] + params[sortedKeys[i]];
+    signStr += ALI_APP_SECRET;
+    params.sign = crypto.createHash('md5').update(signStr).digest('hex').toUpperCase();
+
+    var queryString = Object.keys(params).map(function(k){ return k+'='+encodeURIComponent(params[k]); }).join('&');
+    var response = await axios.get('https://gw.api.alibaba.com/openapi/param2/2/portals.open/api.listPromotionProduct/'+ALI_APP_KEY+'?'+queryString, {timeout:10000});
+
+    if(response.data && response.data.result && response.data.result.products) {
+      var products = response.data.result.products.product;
+      if(!products || products.length === 0) return [];
+      return products
+        .filter(function(p){ return p.evaluate_rate && parseFloat(p.evaluate_rate) > 80; })
+        .sort(function(a,b){ return parseFloat(b.evaluate_rate)-parseFloat(a.evaluate_rate); })
+        .slice(0,2);
+    }
+    return [];
+  } catch(e) {
+    console.error('שגיאה בחיפוש אלי:'+e.message);
+    return [];
+  }
+}
+
+function buildSearchLink(query) {
+  return 'https://www.aliexpress.com/wholesale?SearchText='+encodeURIComponent(query)+'&SortType=total_tranpro_desc&aff_platform=portals-tool&sk=_dV4Bh9T&aff_trace_key='+ALI_TRACKING_ID+'&terminal_id='+ALI_APP_KEY;
+}
+
+function buildProductMessage(products, query, mention) {
+  if(!products || products.length === 0) {
+    var link = buildSearchLink(query);
+    return mention+' 🔍 *'+query+'*\n\n👉 '+link+'\n\n🔥 לחץ לראות את הדילים!';
+  }
+
+  var msg = mention+' ✅ *מצאתי עבורך '+query+'!*\n\n';
+  for(var i=0;i<products.length;i++) {
+    var p = products[i];
+    var title = p.product_title ? p.product_title.substring(0,50) : 'מוצר';
+    var price = p.sale_price || '?';
+    var rating = p.evaluate_rate ? p.evaluate_rate+'%' : '';
+    var sales = p.lastest_volume ? p.lastest_volume+' מכירות' : '';
+    var link = p.promotion_link || buildSearchLink(query);
+
+    msg += (i+1)+'️⃣ *'+title+'*\n';
+    msg += '💰 מחיר: $'+price+'\n';
+    if(rating) msg += '⭐ דירוג: '+rating+'\n';
+    if(sales) msg += '📦 '+sales+'\n';
+    msg += '🔗 '+link+'\n\n';
+  }
+  msg += '🔥 מחירים מטורפים!';
+  return msg;
+}
+
 async function sendDailyDeal() {
-  var deals=[{name:'אוזניות בלוטות פרו',query:'bluetooth earphones pro',saving:120},{name:'שעון חכם 2024',query:'smart watch 2024',saving:250},{name:'מטען מהיר 65W',query:'fast charger 65w',saving:80},{name:'רמקול בלוטות',query:'waterproof bluetooth speaker',saving:150},{name:'מצלמת אבטחה WiFi',query:'security camera wifi',saving:200}];
-  var d=deals[Math.floor(Math.random()*deals.length)];
-  await sendMsg(GROUP_CHAT_ID,'🚨 *דיל היום!* 🚨\n\nהדיל הכי חם: *'+d.name+'*\n\n🌡️ חום הדיל: '+getHeat()+'\n💰 חיסכון: *₪'+d.saving+'*\n\n👉 '+buildLink(d.query)+'\n\n⚡ אל תפספסו!');
+  var queries = ['bluetooth earphones','smart watch','fast charger','bluetooth speaker','security camera'];
+  var query = queries[Math.floor(Math.random()*queries.length)];
+  var products = await searchAliExpress(query);
+
+  if(products && products.length > 0) {
+    var p = products[0];
+    var title = p.product_title ? p.product_title.substring(0,50) : query;
+    var price = p.sale_price || '?';
+    var link = p.promotion_link || buildSearchLink(query);
+    await sendMsg(GROUP_CHAT_ID,'🚨 *דיל היום!* 🚨\n\n🌡️ חום הדיל: '+getHeat()+'\n\n*'+title+'*\n💰 מחיר: $'+price+'\n\n👉 '+link+'\n\n⚡ אל תפספסו!');
+  } else {
+    var link2 = buildSearchLink(query);
+    await sendMsg(GROUP_CHAT_ID,'🚨 *דיל היום!* 🚨\n\n🌡️ חום הדיל: '+getHeat()+'\n\n👉 '+link2+'\n\n⚡ אל תפספסו!');
+  }
 }
 
 async function sendPoll() {
@@ -65,9 +147,15 @@ async function sendPoll() {
 }
 
 async function sendSurprise() {
-  var l=[{name:'גאדגט מטורף',query:'cool gadget 2024'},{name:'מוצר ויראלי',query:'viral product tiktok'},{name:'המצאה מדהימה',query:'amazing invention cheap'}];
-  var s=l[Math.floor(Math.random()*l.length)];
-  await sendMsg(GROUP_CHAT_ID,'🎁 *קופסת הפתעה!*\n\n*'+s.name+'*\n\n👉 '+buildLink(s.query)+'\n\n😱');
+  var queries = ['cool gadget','viral product','amazing invention'];
+  var query = queries[Math.floor(Math.random()*queries.length)];
+  var products = await searchAliExpress(query);
+  if(products && products.length > 0) {
+    var p = products[0];
+    var title = p.product_title ? p.product_title.substring(0,50) : 'גאדגט מטורף';
+    var link = p.promotion_link || buildSearchLink(query);
+    await sendMsg(GROUP_CHAT_ID,'🎁 *קופסת הפתעה!*\n\n*'+title+'*\n\n👉 '+link+'\n\n😱');
+  }
 }
 
 async function announceKing() {
@@ -80,7 +168,7 @@ async function announceKing() {
 }
 
 async function handleAdmin(text, chatId) {
-  var cmd=text.trim();
+  var cmd = text.trim();
   console.log('פקודת מנהל: '+cmd);
   if(cmd==='!דיל'){await sendDailyDeal();await sendMsg(chatId,'✅ דיל נשלח!');return;}
   if(cmd==='!סקר'){await sendPoll();await sendMsg(chatId,'✅ סקר נשלח!');return;}
@@ -94,7 +182,7 @@ async function handleAdmin(text, chatId) {
   if(cmd==='!מצב לילה'){await sendMsg(GROUP_CHAT_ID,'🌙 *מצב לילה*\n\nהבוט עובד בלחישות 😴');await sendMsg(chatId,'✅');return;}
   if(cmd==='!מצב טירוף'){await sendMsg(GROUP_CHAT_ID,'🔥🤯💥 *מצב טירוף!*\n\nיאללה! 🚀💰');await sendMsg(chatId,'✅');return;}
   if(cmd.indexOf('!הקפא ')===0){var n=cmd.replace('!הקפא ','').replace(/^0/,'');if(frozenUsers.indexOf(n)===-1)frozenUsers.push(n);await sendMsg(chatId,'✅ הוקפא!');return;}
-  if(cmd.indexOf('!שחרר ')===0){var n2=cmd.replace('!שחרר ','').replace(/^0/,'');var i=frozenUsers.indexOf(n2);if(i!==-1)frozenUsers.splice(i,1);await sendMsg(chatId,'✅ שוחרר!');return;}
+  if(cmd.indexOf('!שחרר ')===0){var n2=cmd.replace('!שחרר ','').replace(/^0/,'');var idx=frozenUsers.indexOf(n2);if(idx!==-1)frozenUsers.splice(idx,1);await sendMsg(chatId,'✅ שוחרר!');return;}
   if(cmd.indexOf('!VIP ')===0){var n3=cmd.replace('!VIP ','').replace(/^0/,'');if(vipUsers.indexOf(n3)===-1)vipUsers.push(n3);await sendMsg(GROUP_CHAT_ID,'👑 @'+n3+' קיבל/ה VIP! 🌟');await sendMsg(chatId,'✅');return;}
   if(cmd.indexOf('!אזהרה ')===0){var n4=cmd.replace('!אזהרה ','').replace(/^0/,'');await sendMsg(n4+'@c.us','⚠️ *אזהרה מהמנהל!*\n\nאנא שמור על כללי הקבוצה 🙏');await sendMsg(chatId,'✅');return;}
   if(cmd.indexOf('!כבוד ')===0){var n5=cmd.replace('!כבוד ','').replace(/^0/,'');await sendMsg(GROUP_CHAT_ID,'🏆 *גיבור הקבוצה!*\n\n@'+n5+' הגיבור/ת שלנו! ❤️');await sendMsg(chatId,'✅');return;}
@@ -122,11 +210,10 @@ app.post('/webhook',async function(req,res){
     var senderPhone=getPhone(senderRaw);
     if(!text||!chatId||!senderPhone) return;
 
-    console.log('הודעה | '+senderPhone+' | isAdmin:'+isAdmin(senderRaw)+' | '+text.substring(0,30));
+    console.log('📩 '+senderPhone+' | admin:'+isAdmin(senderRaw)+' | '+text.substring(0,30));
 
     if(isAdmin(senderRaw)&&text.charAt(0)==='!'){await handleAdmin(text,chatId);return;}
     if(isFrozen(senderRaw)) return;
-
     if(hasSpam(text)){await sendMsg(chatId,'🚫 @'+senderPhone+' פרסומות אסורות! 🙏');await sendToAdmins('🚨 *ספאם!*\n'+senderName+':\n"'+text+'"');return;}
 
     if(hasBadWord(text)){
@@ -149,23 +236,16 @@ app.post('/webhook',async function(req,res){
     searchCount[senderPhone]=(searchCount[senderPhone]||0)+1;
     var total=searchCount[senderPhone];
     var mention='@'+senderPhone;
-    var link=buildLink(searchQuery);
-    var saving=Math.floor(Math.random()*200)+50;
     var funnyMsg='';
     for(var fk in FUNNY){if(searchQuery.indexOf(fk)!==-1){funnyMsg=FUNNY[fk];break;}}
 
     await sendTyping(chatId);
     await sendMsg(chatId,getGreeting()+' '+mention+'!\n🔍 מחפש *'+searchQuery+'*... רגע אחד!');
-    await sleep(2000);
-    await sendTyping(chatId);
-    await sleep(1500);
+    if(funnyMsg) await sendMsg(chatId,funnyMsg);
+    await sleep(1000);
 
-    var reply=mention+' ✅ *מצאתי עבורך '+searchQuery+'!*\n\n';
-    if(funnyMsg) reply+=funnyMsg+'\n\n';
-    reply+='🌡️ חום הדיל: '+getHeat()+'\n';
-    reply+='💰 חיסכון לעומת ישראל: *₪'+saving+'*\n\n';
-    reply+='👇 לחץ לראות:\n'+link+'\n\n';
-    reply+='🔥 מחירים מטורפים!';
+    var products = await searchAliExpress(searchQuery);
+    var reply = buildProductMessage(products, searchQuery, mention);
 
     if(total===5) reply+='\n\n🎉 החיפוש ה-5 שלך! 😄';
     else if(total===10){reply+='\n\n🏆 *10 חיפושים!* מלך הדילים! 👑';await sendToAdmins('🎉 '+senderName+' הגיע ל-10 חיפושים!');}
@@ -177,7 +257,7 @@ app.post('/webhook',async function(req,res){
 app.get('/',function(req,res){res.send('הבוט הפרימיום פועל!');});
 var PORT=process.env.PORT||3000;
 app.listen(PORT,function(){
-  console.log('הבוט הפרימיום פועל על פורט '+PORT);
+  console.log('🚀 הבוט הפרימיום פועל על פורט '+PORT);
   scheduleDaily(); scheduleWeekly(); scheduleKing();
   setInterval(async function(){await sendSurprise();},7*24*60*60*1000);
 });
