@@ -634,12 +634,15 @@ app.post('/webhook', async function(req, res) {
     var senderRaw = sd.sender || '';
     var senderName = sd.senderName || 'חבר';
     var chatId = sd.chatId || '';
-    var senderPhone = getPhone(senderRaw);
-
-    // חבר חדש
-    if (body.typeWebhook === 'incomingMessageReceived' &&
-        body.messageData && body.messageData.typeMessage === 'groupInviteMessage') {
-      await startNewUserFlow(senderPhone, senderName);
+    var senderPhone = getPhone(senderRaw); 
+    
+ if (body.typeWebhook === 'groupParticipantsAdded') {
+      var newMembers = body.participants || [];
+      for (var nm = 0; nm < newMembers.length; nm++) {
+        var newPhone = getPhone(newMembers[nm].participant || '');
+        var newName = newMembers[nm].participantName || 'חבר';
+        if (newPhone) await startNewUserFlow(newPhone, newName);
+      }
       return;
     }
 
