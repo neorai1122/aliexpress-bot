@@ -814,4 +814,5 @@ app.listen(PORT, function() {
   scheduleWeekly();
   scheduleKing();
   setInterval(async function(){ await sendSurprise(); }, 7*24*60*60*1000);
+  setInterval(function() { axios.get('https://aliexpress-bot-brr6.onrender.com').catch(function(){}); }, 25000);
 });
