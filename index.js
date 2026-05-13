@@ -8,7 +8,7 @@ const INSTANCE_ID = '7107614702';
 const API_TOKEN = 'aaf1035940284f4e80553c38cee6ffadd2704e160e1e4895ae';
 const BASE_URL = 'https://7107.api.greenapi.com';
 const ALI_APP_KEY = '533908';
-const ALI_APP_SECRET = 'iTd8ZOn3s1xmlJ7fXLoe2XYHBkkaF2dF';
+const ALI_APP_SECRET = 'iTd8ZOn3s1xmlJ7fXLoe2XYHBkkaF2dhhF';
 const ALI_TRACKING_ID = 'bot01';
 const GROUP_CHAT_ID = '120363424186489979@g.us';
 const GROUP_NAME = 'דילים שווים';
@@ -272,7 +272,6 @@ function buildProductMessage(products, query, name) {
 async function startNewUserFlow(phone, name) {
   newUserFlow[phone] = { step:0, name:name, answers:{} };
   await sendMsg(phone+'@c.us', WELCOME_INFO);
-  await sleep(1500);
   await sendMsg(phone+'@c.us', SURVEY_Q1);
   newUserFlow[phone].step = 1;
 }
@@ -417,6 +416,10 @@ app.post('/webhook',async function(req,res){
     var senderPhone = getPhone(senderRaw);
 
     if(body.typeWebhook==='groupParticipantsAdded') {
+    if(body.typeWebhook==='incomingMessageReceived' && md && md.typeMessage==='groupInviteMessage') {
+      await startNewUserFlow(senderPhone, senderName);
+      return;
+    }
       var newMembers = body.participants || [];
       for(var nm=0;nm<newMembers.length;nm++) {
         var newPhone = getPhone(newMembers[nm].participant||'');
@@ -494,7 +497,6 @@ app.post('/webhook',async function(req,res){
     for(var fk in FUNNY) { if(searchQuery.indexOf(fk)!==-1) { funnyMsg=FUNNY[fk]; break; } }
 
     await sendTyping(chatId);
-    await sendMsg(chatId,getGreeting()+' @'+senderName+'!\n🔍 מחפש *'+searchQuery+'*...');
     if(funnyMsg) await sendMsg(chatId,funnyMsg);
 
     var products = await getProducts(searchQuery);
@@ -509,7 +511,7 @@ app.post('/webhook',async function(req,res){
     await sendMsg(chatId, replyMsg);
 
     await sendMsg(senderPhone+'@c.us',
-      '🔔 *מצאתי עבורך '+searchQuery+'!*\n\n' +
+      '🔔 *Hey '+senderName+'! Found '+searchQuery+' for you!*\n\n' +
       '👉 '+bestLink+'\n\n' +
       '📱 כנס/י לקבוצה *'+GROUP_NAME+'* לפרטים!'
     );
