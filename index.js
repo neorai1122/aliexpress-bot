@@ -499,6 +499,10 @@ app.post('/webhook',async function(req,res){
     await sendTyping(chatId);
     if(funnyMsg) await sendMsg(chatId,funnyMsg);
 
+    await sendTyping(chatId);
+    await sleep(2000);
+    await sendTyping(chatId);
+    await sleep(1500);
     var products = await getProducts(searchQuery);
     var result = buildProductMessage(products, searchQuery, senderName);
     var replyMsg = typeof result==='object' ? result.msg : result;
@@ -511,7 +515,7 @@ app.post('/webhook',async function(req,res){
     await sendMsg(chatId, replyMsg);
 
     await sendMsg(senderPhone+'@c.us',
-      '🔔 *Hey '+senderName+'! Found '+searchQuery+' for you!*\n\n' +
+      '🔔 *מצאתי עבורך '+searchQuery+'!*\n\n' +
       '👉 '+bestLink+'\n\n' +
       '📱 כנס/י לקבוצה *'+GROUP_NAME+'* לפרטים!'
     );
