@@ -120,26 +120,40 @@ function getStars(rating){
   return s+' ('+stars5.toFixed(1)+'/5)';
 }
 
+// ===== מילות חסימה =====
+const EXCLUDED_WORDS = {
+  'iphone': ['case','cover','screen protector','tempered glass','sponge','holder','stand','cable','charger','strap','band','lens','ring','wallet','bag','pouch','cleaning','brush','stylus'],
+  'samsung': ['case','cover','screen protector','tempered glass','holder','stand','cable','strap','band','lens','wallet','bag','cleaning'],
+  'smartphone': ['case','cover','screen protector','tempered glass','holder','stand','cable','strap','cleaning'],
+  'earphones': ['case','cover','holder','stand','cable','tip','foam','eartip','earbud tip'],
+  'smartwatch': ['case','cover','strap','band','screen protector','tempered glass','charger cable'],
+  'laptop': ['case','cover','sleeve','bag','stand','cooling','keyboard cover','screen protector'],
+};
+
 // ===== בדיקת רלוונטיות קפדנית =====
-function isStrictlyRelevant(title, query){
-  if(!title||!query)return false;
-  var t=title.toLowerCase();
-  var q=query.toLowerCase();
-  var words=q.split(' ').filter(function(w){return w.length>2;});
-  if(words.length===0)return false;
+function isStrictlyRelevant(title, query) {
+  if (!title || !query) return false;
+  var t = title.toLowerCase();
+  var q = query.toLowerCase();
 
-  // בדוק שלפחות המילה הראשית מופיעה בהתחלת הכותרת
-  var firstWord=words[0];
-  if(t.indexOf(firstWord)===0||t.indexOf(firstWord)<10){
-    return true;
+  // בדוק מילות חסימה
+  for (var key in EXCLUDED_WORDS) {
+    if (q.indexOf(key) !== -1) {
+      var excList = EXCLUDED_WORDS[key];
+      for (var e = 0; e < excList.length; e++) {
+        if (t.indexOf(excList[e]) !== -1) return false;
+      }
+    }
   }
 
-  // בדוק שרוב המילות חיפוש מופיעות
-  var matches=0;
-  for(var i=0;i<words.length;i++){
-    if(t.indexOf(words[i])!==-1)matches++;
+  // בדוק שהמילה הראשית מופיעה בכותרת
+  var words = q.split(' ').filter(function(w){ return w.length > 2; });
+  if (words.length === 0) return false;
+  var matches = 0;
+  for (var j = 0; j < words.length; j++) {
+    if (t.indexOf(words[j]) !== -1) matches++;
   }
-  return matches>=Math.ceil(words.length*0.6);
+  return matches >= 1;
 }
 
 // ===== שליחת הודעות =====
