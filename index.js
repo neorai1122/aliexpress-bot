@@ -4,15 +4,15 @@ const crypto = require('crypto');
 const app = express();
 app.use(express.json({limit: '50mb'}));
 
-// ===== הגדרות יסוד (נהוראי - הכל כאן!) =====
-const GROUP_NAME = 'דילים שווים'; // הזזתי להתחלה כדי שלא תהיה שגיאה
+// ===== הגדרות מאסטר (נהוראי - Gemini Edition) =====
+const GROUP_NAME = 'דילים שווים';
+const GEMINI_API_KEY = 'AIzaSyClTG4H6M8kt6bj_yl4f8zJQK8R-MZLvks';
 const INSTANCE_ID = '7107614702';
 const API_TOKEN = 'aaf1035940284f4e80553c38cee6ffadd2704e160e1e4895ae';
 const BASE_URL = 'https://7107.api.greenapi.com';
 const ALI_APP_KEY = '533908';
 const ALI_APP_SECRET = 'iTd8ZOn3s1xmlJ7fXLoe2XYHBkkaF2dF';
 const ALI_TRACKING_ID = 'bot01';
-const GROQ_API_KEY = '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';
 const GROUP_CHAT_ID = '120363424186489979@g.us';
 const ADMIN_NUMBERS = ['972538800370', '972557119650'];
 
@@ -28,6 +28,20 @@ async function updateExchangeRate() {
 }
 updateExchangeRate();
 setInterval(updateExchangeRate, 1000 * 60 * 60 * 12);
+
+// --- Gemini AI - המוח של הבוט ---
+async function askGemini(prompt) {
+    try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+        const response = await axios.post(url, {
+            contents: [{ parts: [{ text: prompt }] }]
+        });
+        return response.data.candidates[0].content.parts[0].text;
+    } catch (e) {
+        console.error('Gemini Error:', e.message);
+        return null;
+    }
+}
 
 // --- פונקציות תרגום וקיצור ---
 async function translateText(text, targetLang) {
@@ -45,42 +59,20 @@ async function shortenLink(url) {
     } catch (e) { return url; }
 }
 
-// --- סוכן AI (Groq) ---
-async function getAgentClarification(queryHe) {
-    try {
-        const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-            model: "llama-3.1-8b-instant",
-            messages: [
-                { role: "system", content: "You are a professional AI shopping agent for AliExpress. Generate 2 clarification questions in HEBREW to help narrow down the user search. Return only JSON format: { 'q1': '...', 'options1': ['...', '...', '...'], 'q2': '...', 'options2': ['...', '...'] }." },
-                { role: "user", content: `Product: ${queryHe}` }
-            ],
-            response_format: { type: "json_object" }
-        }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
-        return JSON.parse(response.data.choices[0].message.content);
-    } catch (e) { return null; }
-}
-
 // ===== ניהול זיכרון =====
-const userMemory = {};
 const searchCount = {};
 const frozenUsers = [];
-const vipUsers = [];
 const warningCount = {};
-const popularSearches = {};
 const newUserFlow = {};
-const agentFlow = {};
-let pollActive = false;
-let pollVotes = {};
 
 // ===== נתוני מערכת מורחבים =====
 const TRIGGER_WORDS = ['אני מחפש','אני מחפשת','חפש לי','חפשי לי','אני צריך','אני צריכה','מחפש','מחפשת','תמצא לי','תביא לי'];
 const BAD_WORDS = ['זין','כוס','שרמוטה','זונה','מניאק','מפגר','חרא','בן זונה','fuck','shit','bitch'];
-const POLL_OPTIONS = ['🎧 אוזניות','⌚ שעונים חכמים','🏠 מוצרי בית','👗 ביגוד','⚽ ספורט','💻 אלקטרוניקה'];
+const POLL_OPTIONS = ['🎧 אוזניות','⌚ שעונים חכמים','🏠 מוצרי בית','👗 ביגוד','💻 אלקטרוניקה'];
 
-const WELCOME_INFO = '👋 *ברוכים הבאים ל-'+GROUP_NAME+'!* 🎉\n\n🤖 *איך מחפשים מוצר?*\nכתוב בקבוצה: _"אני מחפש + שם המוצר"_\n\nהסוכן האישי שלי יפנה אליך בפרטי לדיוק החיפוש! 🕵️\n\n⚠️ *כללי הקבוצה:*\n• אין לקלל — 3 אזהרות = הוצאה!\n━━━━━━━━━━━━━━━';
-const SURVEY_Q1 = '❓ *שאלה 1/3* - מה הקטגוריה האהובה עליך?\n1️⃣ אלקטרוניקה\n2️⃣ ביגוד\n3️⃣ מוצרי בית\n4️⃣ ספורט\n5️⃣ הכל!';
-const SURVEY_Q2 = '❓ *שאלה 2/3* - מה טווח הגילאים שלך?\n1️⃣ 18-25\n2️⃣ 26-35\n3️⃣ 36-45\n4️⃣ 45+';
-const SURVEY_DONE = '✅ *תודה!* אפשר להתחיל לחפש מוצרים בקבוצה! 🔥';
+const WELCOME_INFO = '👋 *ברוכים הבאים ל-'+GROUP_NAME+'!* 🎉\n\n🤖 *איך מחפשים מוצר?*\nפשוט תכתבו בקבוצה: _"אני מחפש + מוצר"_\n\nהסוכן החכם שלנו (מבוסס Gemini) ימצא לכם את הדיל הכי משתלם ויכתוב עליו המלצה! 🕵️';
+const SURVEY_Q1 = '❓ *שאלה 1/2* - מה הכי מעניין אותך?\n1️⃣ אלקטרוניקה\n2️⃣ ביגוד\n3️⃣ הכל!';
+const SURVEY_DONE = '✅ *תודה!* אפשר להתחיל לחפש מוצרים! 🔥';
 
 function getPhone(raw){return raw.replace('@c.us','').replace('@g.us','').replace('@','').trim();}
 function isAdmin(raw){return ADMIN_NUMBERS.indexOf(getPhone(raw))!==-1;}
@@ -88,23 +80,15 @@ function isFrozen(raw){return frozenUsers.indexOf(getPhone(raw))!==-1;}
 function hasBadWord(t){var l=t.toLowerCase();for(var i=0;i<BAD_WORDS.length;i++)if(l.indexOf(BAD_WORDS[i])!==-1)return true;return false;}
 function sleep(ms){return new Promise(r => setTimeout(r, ms));}
 
-function getStars(rating){
-    var r = parseFloat(rating); if(isNaN(r)) return '⭐⭐⭐⭐⭐';
-    var stars = Math.round((r/20)*2)/2;
-    var s = ''; for(let i=0; i<Math.floor(stars); i++) s+='⭐';
-    if(stars%1!==0) s+='✨';
-    return s + ` (${(stars).toFixed(1)}/5)`;
-}
-
-// --- מנוע סינון רלוונטיות ---
+// --- מנוע סינון רלוונטיות (ANTI-ACCESSORIES) ---
 function isStrictlyRelevant(title, queryEn, priceIls) {
     if (!title || !queryEn) return false;
     const t = title.toLowerCase();
     const q = queryEn.toLowerCase();
     const highValue = ['phone', 'laptop', 'tablet', 'camera', 'iphone', 'samsung'];
     if (highValue.some(k => q.includes(k)) && priceIls < 250) return false;
-    const forbidden = ['case', 'cover', 'glass', 'film', 'protector', 'silicone', 'tpu', 'strap', 'cable', 'holder'];
-    if (!q.includes('case') && !q.includes('cover')) {
+    const forbidden = ['case', 'cover', 'glass', 'film', 'protector', 'silicone', 'tpu', 'strap', 'cable', 'holder', 'sticker'];
+    if (!q.includes('case') && !q.includes('cover') && !q.includes('cable')) {
         for (let acc of forbidden) if (t.includes(acc)) return false;
     }
     return true;
@@ -124,20 +108,18 @@ async function sendImage(chatId, imageUrl, caption) {
     } catch (e) { if (caption) await sendMsg(chatId, caption); }
 }
 
-async function removeFromGroup(phone){
-    try{await axios.post(`${BASE_URL}/waInstance${INSTANCE_ID}/removeGroupParticipant/${API_TOKEN}`,{groupId:GROUP_CHAT_ID,participantChatId:phone+'@c.us'});}
-    catch(e){}
-}
-
-// --- AliExpress Master Engine ---
+// --- AliExpress Gemini Engine ---
 async function searchAliExpress(queryHe, strict) {
     try {
-        const queryEn = await translateText(queryHe, 'en');
+        // שלב 1: Gemini הופך את החיפוש לאופטימלי באנגלית
+        const optimizedQuery = await askGemini(`Convert this Hebrew product search to the best possible English search term for AliExpress (only return the English words): "${queryHe}"`);
+        const queryEn = optimizedQuery || await translateText(queryHe, 'en');
+
         const timestamp = Date.now().toString();
         const params = {
             app_key: ALI_APP_KEY, method: 'aliexpress.affiliate.product.query',
             sign_method: 'md5', timestamp, v: '2.0', keywords: queryEn,
-            tracking_id: ALI_TRACKING_ID, page_size: '40', sort: 'LAST_VOLUME_DESC',
+            tracking_id: ALI_TRACKING_ID, page_size: '20', sort: 'LAST_VOLUME_DESC',
             fields: 'product_id,product_title,sale_price,evaluate_rate,lastest_volume,promotion_link,original_price,product_main_image_url'
         };
         const keys = Object.keys(params).sort();
@@ -156,75 +138,42 @@ async function searchAliExpress(queryHe, strict) {
             let titleHe = await translateText(p.product_title, 'iw');
             let shortUrl = await shortenLink(p.promotion_link);
             filtered.push({ title: titleHe.substring(0, 85), price: priceIls, originalPrice: Math.round(parseFloat(p.original_price) * USD_TO_ILS), link: shortUrl, image: p.product_main_image_url, rating: p.evaluate_rate, sales: p.lastest_volume });
-            if (filtered.length >= 2) break;
+            if (filtered.length >= 3) break;
         }
         return filtered;
     } catch (e) { return []; }
 }
 
-async function sendProduct(chatId, product, num) {
-    let caption = `━━━━━━━━━━━━━━━\n${num}️⃣ *${product.title}*\n━━━━━━━━━━━━━━━\n💰 מחיר: *₪${product.price}*\n${getStars(product.rating)}\n📦 ${Number(product.sales).toLocaleString()} מכירות\n🔗 ${product.link}\n━━━━━━━━━━━━━━━`;
-    if (product.image) await sendImage(chatId, product.image, caption);
-    else await sendMsg(chatId, caption);
-}
-
-// ===== זרימת סוכן AI =====
-async function startAgentFlow(senderRaw, senderName, chatId, query) {
-    const clarification = await getAgentClarification(query);
-    if (!clarification) { await doFinalSearch(senderRaw, senderName, chatId, query); return; }
-    const senderPhone = getPhone(senderRaw);
-    agentFlow[senderPhone] = { query, step: 1, chatId, clarification, answers: [] };
-    await sendMsg(chatId, `@${senderName} 🕵️ *סוכן ה-AI שלי בדרך אליך!* \nשלחתי לך הודעה בפרטי לדיוק החיפוש.`);
-    let qMsg = `🕵️ *שלום ${senderName}, בוא נבחר את האופציה הכי טובה עבור "${query}":*\n\n❓ *${clarification.q1}*\n\n`;
-    clarification.options1.forEach((opt, i) => qMsg += `${i+1}️⃣ ${opt}\n`);
-    await sendMsg(senderRaw, qMsg + `\n_ענה/י עם המספר המתאים_`);
-}
-
-async function handleAgentAnswer(senderRaw, senderName, text) {
-    const senderPhone = getPhone(senderRaw);
-    const flow = agentFlow[senderPhone];
-    if (!flow) return false;
-    const num = parseInt(text.trim());
-    if (isNaN(num)) return true;
-    if (flow.step === 1) {
-        flow.answers.push(flow.clarification.options1[num-1] || text);
-        flow.step = 2;
-        let qMsg = `🕵️ *מצוין!*\n\n❓ *${flow.clarification.q2}*\n\n`;
-        flow.clarification.options2.forEach((opt, i) => qMsg += `${i+1}️⃣ ${opt}\n`);
-        await sendMsg(senderRaw, qMsg + `\n_ענה/י עם המספר המתאים_`);
-        return true;
-    }
-    if (flow.step === 2) {
-        flow.answers.push(flow.clarification.options2[num-1] || text);
-        await sendMsg(senderRaw, `✅ *תודה!* חוזר לקבוצה עם התוצאות...`);
-        await doFinalSearch(senderRaw, senderName, flow.chatId, `${flow.query} ${flow.answers.join(' ')}`);
-        delete agentFlow[senderPhone];
-        return true;
-    }
-    return false;
-}
-
-async function doFinalSearch(senderRaw, senderName, chatId, finalQuery) {
-    await sendMsg(chatId, `🕵️ *הסוכן חזר!* @${senderName}, הנה מה שמצאתי עבור "${finalQuery}" 👇`);
-    const products = await searchAliExpress(finalQuery, true);
-    if (products.length > 0) {
-        for (let i = 0; i < products.length; i++) {
-            await sendProduct(chatId, products[i], i + 1);
-            await sleep(1000);
-        }
-    } else await sendMsg(chatId, `😕 לא מצאתי מוצר מספיק איכותי.`);
-}
-
-// ===== פונקציות ניהול =====
-async function handleAdmin(text, chatId) {
-    const cmd = text.trim();
-    if (cmd === '!דיל') {
-        const p = await searchAliExpress('hot gadget', false);
-        if (p.length > 0) await sendProduct(chatId, p[0], '🔥');
+// ===== זרימת חיפוש חכמה (הכל בקבוצה!) =====
+async function doSmartSearch(senderRaw, senderName, chatId, queryHe) {
+    await sendMsg(chatId, `🕵️ *הסוכן החכם Gemini מנתח את הבקשה שלך...* \nמחפש עבור @${senderName} את הדיל הכי משתלם ל"${queryHe}"...`);
+    
+    const products = await searchAliExpress(queryHe, true);
+    
+    if (products.length === 0) {
+        await sendMsg(chatId, `😕 @${senderName}, לא מצאתי מוצר איכותי שתואם בדיוק את הבקשה. נסה לתאר את המוצר קצת אחרת!`);
         return;
     }
-    if (cmd === '!מצב') { await sendMsg(chatId, `📊 הבוט פעיל!`); return; }
-    if (cmd === '!בוקר') { await sendMsg(GROUP_CHAT_ID, '☀️ *בוקר טוב!* 🔥'); return; }
+
+    // שלב 2: Gemini כותב המלצת מומחה על המוצר הכי טוב
+    const bestProduct = products[0];
+    const aiReview = await askGemini(`Write a very short (2-3 sentences) professional and exciting recommendation in Hebrew for this product: "${bestProduct.title}" with price ₪${bestProduct.price}. Explain why it's a good deal. Use emojis.`);
+
+    let caption = `━━━━━━━━━━━━━━━\n🌟 *בחירת הסוכן החכם* 🌟\n━━━━━━━━━━━━━━━\n\n${aiReview}\n\n`;
+    caption += `💎 *${bestProduct.title}*\n`;
+    caption += `💰 מחיר: *₪${bestProduct.price}*\n`;
+    caption += `📦 מכירות: ${bestProduct.sales}\n`;
+    caption += `🔗 ${bestProduct.link}\n━━━━━━━━━━━━━━━`;
+
+    if (bestProduct.image) await sendImage(chatId, bestProduct.image, caption);
+    else await sendMsg(chatId, caption);
+
+    // שליחת מוצר נוסף כגיבוי
+    if (products.length > 1) {
+        await sleep(1500);
+        let cap2 = `💡 *אופציה נוספת:*\n*${products[1].title}*\n💰 מחיר: *₪${products[1].price}*\n🔗 ${products[1].link}`;
+        await sendMsg(chatId, cap2);
+    }
 }
 
 // ===== Webhook Handler =====
@@ -238,6 +187,7 @@ app.post('/webhook', async (req, res) => {
         const senderName = sd.senderName || 'חבר';
         const chatId = body.messageData?.chatId || sd.chatId || '';
 
+        // הצטרפות חברים
         if (body.typeWebhook === 'groupParticipantsAdded') {
             await sendMsg(senderRaw, WELCOME_INFO);
             newUserFlow[senderPhone] = { step: 1 };
@@ -249,20 +199,19 @@ app.post('/webhook', async (req, res) => {
         const md = body.messageData || {};
         const text = md.textMessageData?.textMessage || '';
 
-        if (chatId.includes('@c.us')) {
-            if (newUserFlow[senderPhone]) {
-                if (newUserFlow[senderPhone].step === 1) { newUserFlow[senderPhone].step = 2; await sendMsg(senderRaw, SURVEY_Q2); return; }
-                if (newUserFlow[senderPhone].step === 2) { await sendMsg(senderRaw, SURVEY_DONE); delete newUserFlow[senderPhone]; return; }
-            }
-            if (agentFlow[senderPhone]) {
-                const handled = await handleAgentAnswer(senderRaw, senderName, text);
-                if (handled) return;
-            }
+        // שאלון מצטרפים בפרטי
+        if (chatId.includes('@c.us') && newUserFlow[senderPhone]) {
+            if (newUserFlow[senderPhone].step === 1) { newUserFlow[senderPhone].step = 0; await sendMsg(senderRaw, SURVEY_DONE); return; }
         }
 
-        if (isAdmin(senderRaw) && text.startsWith('!')) { await handleAdmin(text, chatId); return; }
+        // הגנות וניהול
+        if (isAdmin(senderRaw) && text.startsWith('!')) { 
+            if (text === '!מצב') await sendMsg(chatId, `📊 הבוט פעיל ומחובר ל-Gemini AI!`);
+            return; 
+        }
         if (isFrozen(senderRaw) || hasBadWord(text)) return;
 
+        // זיהוי חיפוש
         let triggerFound = false, searchQuery = text;
         for (let t of TRIGGER_WORDS) {
             if (text.includes(t)) {
@@ -274,14 +223,16 @@ app.post('/webhook', async (req, res) => {
 
         if (triggerFound && searchQuery.length > 1) {
             searchCount[senderPhone] = (searchCount[senderPhone] || 0) + 1;
-            await startAgentFlow(senderRaw, senderName, chatId, searchQuery);
+            if (searchCount[senderPhone] === 10) await sendMsg(chatId, `👑 @${senderName} אתה מלך החיפושים!`);
+            
+            await doSmartSearch(senderRaw, senderName, chatId, searchQuery);
         }
 
     } catch (e) {}
 });
 
-app.get('/', (req, res) => res.send('🤖 AI Agent is Online!'));
+app.get('/', (req, res) => res.send('🤖 Gemini AI Master Bot is Online!'));
 app.listen(process.env.PORT || 3000, () => {
-    console.log('🚀 הבוט תוקן ובאוויר!');
+    console.log('🚀 הבוט המאסטר באוויר!');
     setInterval(() => axios.get('https://' + process.env.RENDER_EXTERNAL_HOSTNAME).catch(() => {}), 25000);
 });
