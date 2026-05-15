@@ -4,31 +4,33 @@ const crypto = require('crypto');
 const app = express();
 app.use(express.json({limit: '50mb'}));
 
+// ===== הגדרות מפתחות וגישה (נהוראי - הכל כאן!) =====
 const INSTANCE_ID = '7107614702';
 const API_TOKEN = 'aaf1035940284f4e80553c38cee6ffadd2704e160e1e4895ae';
 const BASE_URL = 'https://7107.api.greenapi.com';
 const ALI_APP_KEY = '533908';
 const ALI_APP_SECRET = 'iTd8ZOn3s1xmlJ7fXLoe2XYHBkkaF2dF';
 const ALI_TRACKING_ID = 'bot01';
+const GROQ_API_KEY = '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';
 const GROUP_CHAT_ID = '120363424186489979@g.us';
 const GROUP_NAME = 'דילים שווים';
 const ADMIN_NUMBERS = ['972538800370', '972557119650'];
 
-// --- שיפור: שער דולר דינמי ---
+// --- שער דולר דינמי (מתעדכן אוטומטית) ---
 let USD_TO_ILS = 3.75; 
 async function updateExchangeRate() {
     try {
         const response = await axios.get('https://api.exchangerate-api.com/v4/latest/USD');
         if (response.data && response.data.rates && response.data.rates.ILS) {
             USD_TO_ILS = response.data.rates.ILS;
-            console.log(`✅ שער הדולר עודכן ל: ${USD_TO_ILS}`);
+            console.log(`✅ שער הדולר עודכן: ${USD_TO_ILS}`);
         }
-    } catch (e) { console.error('Exchange Rate Error'); }
+    } catch (e) { console.error('Exchange rate error'); }
 }
 updateExchangeRate();
 setInterval(updateExchangeRate, 1000 * 60 * 60 * 12);
 
-// --- שיפור: תרגום (לדיוק בחיפוש ושמות בעברית) ---
+// --- פונקציית תרגום (לחיפוש ולשמות מוצרים) ---
 async function translateText(text, targetLang) {
     try {
         const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
@@ -37,12 +39,27 @@ async function translateText(text, targetLang) {
     } catch (e) { return text; }
 }
 
-// --- שיפור: קיצור לינקים ---
+// --- קיצור לינקים (TinyURL) ---
 async function shortenLink(url) {
     try {
         const res = await axios.get(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(url)}`);
         return res.data;
     } catch (e) { return url; }
+}
+
+// --- סוכן בינה מלאכותית (Groq) לייצור שאלות הבהרה ---
+async function getAgentClarification(queryHe) {
+    try {
+        const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+            model: "llama-3.1-8b-instant",
+            messages: [
+                { role: "system", content: "You are an expert shopping assistant. The user wants to find a product on AliExpress. Generate 2 clarification questions in Hebrew to narrow down the search (type, material, style, etc.). Format your response as a JSON: { 'q1': 'question 1', 'options1': ['opt1', 'opt2', 'opt3'], 'q2': 'question 2', 'options2': ['opt1', 'opt2'] }. Only return JSON." },
+                { role: "user", content: `The product is: ${queryHe}` }
+            ],
+            response_format: { type: "json_object" }
+        }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
+        return JSON.parse(response.data.choices[0].message.content);
+    } catch (e) { return null; }
 }
 
 const userMemory = {};
@@ -52,6 +69,7 @@ const vipUsers = [];
 const warningCount = {};
 const popularSearches = {};
 const newUserFlow = {};
+const agentFlow = {};
 const clarificationFlow = {};
 let pollActive = false;
 let pollVotes = {};
@@ -68,7 +86,7 @@ const SIMILAR_PRODUCTS = {
   'fast charger': ['wireless charger', 'power bank', 'usb hub'],
 };
 
-// ===== שאלות הבהרה =====
+// ===== שאלות הבהרה (המקוריות שלך) =====
 const CLARIFICATION = {
   'טלפון': {
     q: '📱 *איזה סוג טלפון?*\n\n1️⃣ אייפון\n2️⃣ סמסונג\n3️⃣ שיאומי\n4️⃣ אנדרואיד כללי\n5️⃣ הכי זול!',
@@ -122,340 +140,289 @@ const Q1A=['','אלקטרוניקה','ביגוד','מוצרי בית','ספור�
 const Q2A=['','18-25','26-35','36-45','45+'];
 const Q3A=['','חבר/ה','פייסבוק','אינסטגרם','טיקטוק','אחר'];
 
+// --- פונקציות עזר (נהוראי - ללא שינוי) ---
 function getPhone(raw){return raw.replace('c.us','').replace('@','').replace('.','').trim();}
 function isAdmin(raw){return ADMIN_NUMBERS.indexOf(getPhone(raw))!==-1;}
 function isFrozen(raw){return frozenUsers.indexOf(getPhone(raw))!==-1;}
 function hasBadWord(t){var l=t.toLowerCase();for(var i=0;i<BAD_WORDS.length;i++)if(l.indexOf(BAD_WORDS[i].toLowerCase())!==-1)return true;return false;}
 function hasSpam(t){for(var i=0;i<SPAM_WORDS.length;i++)if(t.indexOf(SPAM_WORDS[i])!==-1)return true;return false;}
-function sleep(ms){return new Promise(function(r){setTimeout(r,ms);});}
-function getTopSearches(){return Object.keys(popularSearches).sort(function(a,b){return popularSearches[b]-popularSearches[a];}).slice(0,3);}
-
-function usdToIls(usd){
-  var num=parseFloat(usd);
-  if(isNaN(num))return null;
-  return Math.round(num*USD_TO_ILS);
-}
+function sleep(ms){return new Promise(r => setTimeout(r, ms));}
+function getTopSearches(){return Object.keys(popularSearches).sort((a,b) => popularSearches[b]-popularSearches[a]).slice(0,3);}
 
 function getStars(rating){
-  var r=parseFloat(rating);
-  if(isNaN(r))return '';
+  var r=parseFloat(rating); if(isNaN(r))return '';
   var stars5=Math.round((r/20)*2)/2;
   var full=Math.floor(stars5);
   var half=(stars5-full)>=0.5?1:0;
   var empty=5-full-half;
-  var s='';
-  for(var i=0;i<full;i++)s+='⭐';
-  if(half)s+='✨';
-  for(var j=0;j<empty;j++)s+='☆';
+  var s=''; for(var i=0;i<full;i++)s+='⭐';
+  if(half)s+='✨'; for(var j=0;j<empty;j++)s+='☆';
   return s+' ('+stars5.toFixed(1)+'/5)';
 }
 
-// ===== שיפור: סינון רלוונטיות קפדני =====
+// --- מנוע סינון רלוונטיות קפדני (פותר את בעיית האביזרים) ---
 const EXCLUDED_WORDS = {
   'iphone': ['case','cover','screen protector','tempered glass','sponge','holder','stand','cable','charger','strap','band','ring','wallet','pouch'],
-  'earphones': ['case','cover','holder','cable','tip','bag','pouch'],
+  'samsung': ['case','cover','screen protector','tempered glass','holder','stand','cable','strap','band'],
   'smartphone': ['case','cover','screen protector','holder','cable'],
 };
 
 function isStrictlyRelevant(title, queryEn, priceIls) {
-  if (!title || !queryEn) return false;
-  var t = title.toLowerCase();
-  var q = queryEn.toLowerCase();
-
-  // מניעת אביזרים זולים במקום מוצרים יקרים
-  if ((q.includes('phone') || q.includes('earphone') || q.includes('watch')) && priceIls < 30) return false;
-
-  for (var key in EXCLUDED_WORDS) {
-    if (q.indexOf(key) !== -1) {
-      var excList = EXCLUDED_WORDS[key];
-      for (var e = 0; e < excList.length; e++) {
-        if (t.indexOf(excList[e]) !== -1) return false;
-      }
+    if (!title || !queryEn) return false;
+    const t = title.toLowerCase();
+    const q = queryEn.toLowerCase();
+    
+    // מניעת מוצרים זולים מדי לקטגוריות יקרות
+    const highValue = ['phone', 'laptop', 'tablet', 'camera', 'iphone', 'samsung'];
+    if (highValue.some(k => q.includes(k)) && priceIls < 300) return false;
+    
+    const forbidden = ['case', 'cover', 'film', 'glass', 'protector', 'silicone', 'tpu', 'strap', 'cable', 'plug', 'holder'];
+    if (!q.includes('case') && !q.includes('cover')) {
+        for (let acc of forbidden) if (t.includes(acc)) return false;
     }
-  }
-  return true;
+    return true;
 }
 
-// ===== שליחת הודעות ותמונות =====
-async function sendMsg(chatId,message){
-  try{await axios.post(BASE_URL+'/waInstance'+INSTANCE_ID+'/sendMessage/'+API_TOKEN,{chatId:chatId,message:message});}
-  catch(e){console.error('❌ sendMsg:'+e.message);}
+// --- שליחת הודעות (Green API) ---
+async function sendMsg(chatId, message) {
+    try { await axios.post(`${BASE_URL}/waInstance${INSTANCE_ID}/sendMessage/${API_TOKEN}`, { chatId, message }); }
+    catch (e) { console.error('❌ SendMsg Error'); }
 }
 
-async function sendImage(chatId,imageUrl,caption){
-  try{
-    await axios.post(BASE_URL+'/waInstance'+INSTANCE_ID+'/sendFileByUrl/'+API_TOKEN,{
-      chatId:chatId,
-      urlFile:imageUrl,
-      fileName:'product.jpg',
-      caption:caption||''
-    });
-  }catch(e){
-    if(caption)await sendMsg(chatId,caption);
-  }
+async function sendImage(chatId, imageUrl, caption) {
+    try {
+        await axios.post(`${BASE_URL}/waInstance${INSTANCE_ID}/sendFileByUrl/${API_TOKEN}`, {
+            chatId, urlFile: imageUrl, fileName: 'product.jpg', caption: caption || ''
+        });
+    } catch (e) { if (caption) await sendMsg(chatId, caption); }
 }
 
-async function sendTyping(chatId){try{await axios.post(BASE_URL+'/waInstance'+INSTANCE_ID+'/sendTyping/'+API_TOKEN,{chatId:chatId});}catch(e){}}
+async function sendTyping(chatId){try{await axios.post(`${BASE_URL}/waInstance${INSTANCE_ID}/sendTyping/${API_TOKEN}`,{chatId});}catch(e){}}
 async function sendToAdmins(msg){for(var i=0;i<ADMIN_NUMBERS.length;i++)await sendMsg(ADMIN_NUMBERS[i]+'@c.us',msg);}
 async function removeFromGroup(phone){
-  try{await axios.post(BASE_URL+'/waInstance'+INSTANCE_ID+'/removeGroupParticipant/'+API_TOKEN,{groupId:GROUP_CHAT_ID,participantChatId:phone+'@c.us'});return true;}
-  catch(e){return false;}
+    try{await axios.post(`${BASE_URL}/waInstance${INSTANCE_ID}/removeGroupParticipant/${API_TOKEN}`,{groupId:GROUP_CHAT_ID,participantChatId:phone+'@c.us'});return true;}
+    catch(e){return false;}
 }
 
-// ===== AliExpress API (משופר עם תרגום וקיצור לינקים) =====
-async function searchAliExpress(queryHe,strict){
-  try{
-    // 1. תרגום החיפוש לאנגלית לדיוק מקסימלי
-    const queryEn = await translateText(queryHe, 'en');
-    
-    var timestamp=Date.now().toString();
-    var params={
-      app_key:ALI_APP_KEY,
-      method:'aliexpress.affiliate.product.query',
-      sign_method:'md5',
-      timestamp:timestamp,
-      v:'2.0',
-      keywords:queryEn,
-      tracking_id:ALI_TRACKING_ID,
-      page_size:'30',
-      sort:'LAST_VOLUME_DESC',
-      fields:'product_id,product_title,sale_price,evaluate_rate,lastest_volume,promotion_link,original_price,product_main_image_url'
-    };
-    var keys=Object.keys(params).sort();
-    var signStr=ALI_APP_SECRET;
-    for(var i=0;i<keys.length;i++)signStr+=keys[i]+params[keys[i]];
-    signStr+=ALI_APP_SECRET;
-    params.sign=crypto.createHash('md5').update(signStr,'utf8').digest('hex').toUpperCase();
-    var qs=Object.keys(params).map(function(k){return encodeURIComponent(k)+'='+encodeURIComponent(params[k]);}).join('&');
-    var res=await axios.get('https://api-sg.aliexpress.com/sync?'+qs,{timeout:15000});
-    
-    var products = [];
-    if (res.data && res.data.aliexpress_affiliate_product_query_response && res.data.aliexpress_affiliate_product_query_response.resp_result) {
-        products = res.data.aliexpress_affiliate_product_query_response.resp_result.result.products.product || [];
-    }
-    
-    if(products.length===0) return [];
+// --- AliExpress API (הלב של הבוט) ---
+async function searchAliExpress(queryHe, strict) {
+    try {
+        const queryEn = await translateText(queryHe, 'en');
+        const timestamp = Date.now().toString();
+        const params = {
+            app_key: ALI_APP_KEY, method: 'aliexpress.affiliate.product.query',
+            sign_method: 'md5', timestamp, v: '2.0', keywords: queryEn,
+            tracking_id: ALI_TRACKING_ID, page_size: '40', sort: 'LAST_VOLUME_DESC',
+            fields: 'product_id,product_title,sale_price,evaluate_rate,lastest_volume,promotion_link,original_price,product_main_image_url'
+        };
 
-    var filtered = [];
-    for (let p of products) {
-        let priceIls = usdToIls(p.sale_price);
-        if (strict !== false && !isStrictlyRelevant(p.product_title, queryEn, priceIls)) continue;
+        const keys = Object.keys(params).sort();
+        let signStr = ALI_APP_SECRET;
+        for (let k of keys) signStr += k + params[k];
+        signStr += ALI_APP_SECRET;
+        params.sign = crypto.createHash('md5').update(signStr, 'utf8').digest('hex').toUpperCase();
         
-        let titleHe = await translateText(p.product_title, 'iw');
-        let shortUrl = await shortenLink(p.promotion_link);
+        const qs = Object.keys(params).map(k => `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`).join('&');
+        const res = await axios.get(`https://api-sg.aliexpress.com/sync?${qs}`, { timeout: 15000 });
+        
+        let products = res.data?.aliexpress_affiliate_product_query_response?.resp_result?.result?.products?.product || [];
+        if (products.length === 0) return [];
 
-        filtered.push({
-          title: titleHe.substring(0,65),
-          price: priceIls,
-          originalPrice: usdToIls(p.original_price),
-          sales: p.lastest_volume||0,
-          rating: p.evaluate_rate||0,
-          link: shortUrl,
-          image: p.product_main_image_url ? (p.product_main_image_url.startsWith('//') ? 'https:' + p.product_main_image_url : p.product_main_image_url) : null
-        });
-        if (filtered.length >= 2) break;
-    }
-    return filtered;
-  }catch(e){console.error('AliExpress Error:'+e.message);return[];}
+        let filtered = [];
+        for (let p of products) {
+            let priceIls = Math.round(parseFloat(p.sale_price) * USD_TO_ILS);
+            if (strict && !isStrictlyRelevant(p.product_title, queryEn, priceIls)) continue;
+            
+            let titleHe = await translateText(p.product_title, 'iw');
+            let shortUrl = await shortenLink(p.promotion_link);
+
+            filtered.push({
+                title: titleHe.substring(0, 80), price: priceIls,
+                originalPrice: Math.round(parseFloat(p.original_price) * USD_TO_ILS),
+                sales: p.lastest_volume || 0, rating: p.evaluate_rate || 0,
+                link: shortUrl, image: p.product_main_image_url ? (p.product_main_image_url.startsWith('//') ? 'https:' + p.product_main_image_url : p.product_main_image_url) : null
+            });
+            if (filtered.length >= 2) break;
+        }
+        return filtered;
+    } catch (e) { return []; }
 }
 
-async function sendProduct(chatId,product,num){
-  var caption='━━━━━━━━━━━━━━━\n';
-  caption+=num+'️⃣ *'+product.title+'*\n';
-  caption+='━━━━━━━━━━━━━━━\n';
-  if(product.originalPrice && product.originalPrice > product.price){
-    let disc = Math.round((1-product.price/product.originalPrice)*100);
-    caption+='💰 *₪'+product.price+'* ~~₪'+product.originalPrice+'~~ 🏷️ -'+disc+'%\n';
-  }else{
-    caption+='💰 מחיר: *₪'+product.price+'*\n';
-  }
-  caption+='🚚 משלוח חינם!\n';
-  caption+=getStars(product.rating)+'\n';
-  caption+='📦 '+Number(product.sales).toLocaleString()+' מכירות\n';
-  caption+='🔗 '+product.link+'\n';
-  caption+='━━━━━━━━━━━━━━━';
-  if(product.image){await sendImage(chatId,product.image,caption);}
-  else{await sendMsg(chatId,caption);}
-}
-
-// ===== לוגיקת שאלון חבר חדש =====
-async function startNewUserFlow(phone,name){
-  newUserFlow[phone]={step:0,name:name,answers:{}};
-  await sendMsg(phone+'@c.us',WELCOME_INFO);
-  await sleep(1500);
-  await sendMsg(phone+'@c.us',SURVEY_Q1);
-  newUserFlow[phone].step=1;
-}
-
-async function handleNewUserAnswer(phone,name,text){
-  var flow=newUserFlow[phone];if(!flow)return false;
-  var num=parseInt(text.trim());
-  if(flow.step===1){if(isNaN(num)||num<1||num>5){await sendMsg(phone+'@c.us','⚠️ ענה/י עם מספר 1-5');return true;}flow.answers.q1=Q1A[num];await sendMsg(phone+'@c.us',SURVEY_Q2);flow.step=2;return true;}
-  if(flow.step===2){if(isNaN(num)||num<1||num>4){await sendMsg(phone+'@c.us','⚠️ ענה/י עם מספר 1-4');return true;}flow.answers.q2=Q2A[num];await sendMsg(phone+'@c.us',SURVEY_Q3);flow.step=3;return true;}
-  if(flow.step===3){
-    if(isNaN(num)||num<1||num>5){await sendMsg(phone+'@c.us','⚠️ ענה/י עם מספר 1-5');return true;}
-    flow.answers.q3=Q3A[num];flow.step=0;
-    await sendMsg(phone+'@c.us',SURVEY_DONE);
-    await sendToAdmins('📋 *חבר/ה חדש/ה!*\n👤 '+name+'\n📱 '+phone+'\n🔍 '+flow.answers.q1+'\n🎂 '+flow.answers.q2+'\n📣 '+flow.answers.q3);
-    await sendMsg(GROUP_CHAT_ID,'🎉 *ברוכים הבאים @'+name+'!*\n\nשמחים שהצטרפת! 😊\nכתוב/י *אני מחפש + מוצר* ונמצא לך! 🔥');
-    delete newUserFlow[phone];return true;
-  }
-  return false;
-}
-
-// ===== לוגיקת סקר =====
-async function startPoll(){
-  pollActive=true;for(var k in pollVotes)delete pollVotes[k];for(var i=0;i<POLL_OPTIONS.length;i++)pollVotes[i+1]=0;
-  var top=getTopSearches();var topMsg=top.length>0?'\n\n💡 _הכי חיפשתם: '+top.join(', ')+'_':'';
-  var msg='━━━━━━━━━━━━━━━\n📊 *סקר שבועי!*\n━━━━━━━━━━━━━━━\n\n';
-  for(var j=0;j<POLL_OPTIONS.length;j++)msg+=(j+1)+'. '+POLL_OPTIONS[j]+'\n';
-  msg+='\n✍️ *ענו עם המספר!*'+topMsg+'\n⏰ _פתוח 24 שעות_\n━━━━━━━━━━━━━━━';
-  await sendMsg(GROUP_CHAT_ID,msg);
-  if(pollTimeout)clearTimeout(pollTimeout);
-  pollTimeout=setTimeout(async function(){await sendPollResults();},24*60*60*1000);
-}
-
-async function sendPollResults(){
-  pollActive=false;var total=0;for(var k in pollVotes)total+=pollVotes[k];
-  if(total===0){await sendToAdmins('📊 אף אחד לא הצביע 😕');return;}
-  var results=Object.keys(pollVotes).map(function(k){return{name:POLL_OPTIONS[parseInt(k)-1],votes:pollVotes[k]};}).sort(function(a,b){return b.votes-a.votes;});
-  var msg='━━━━━━━━━━━━━━━\n📊 *תוצאות הסקר!*\n━━━━━━━━━━━━━━━\n\nהצביעו: *'+total+'*\n\n';
-  for(var i=0;i<results.length;i++){if(results[i].votes>0){msg+='▫️ '+results[i].name+': '+results[i].votes+'\n';}}
-  msg+='\n🏆 *מנצח: '+results[0].name+'!*\n━━━━━━━━━━━━━━━';
-  await sendMsg(GROUP_CHAT_ID,msg);
-}
-
-async function sendDeal(){
-  var top=getTopSearches();
-  var queries=['bluetooth earphones','smartwatch','fast charger usb-c','bluetooth speaker'];
-  var query=top.length>0?top[0]:queries[Math.floor(Math.random()*queries.length)];
-  var products=await searchAliExpress(query,false);
-  if(!products||products.length===0)return;
-  await sendMsg(GROUP_CHAT_ID,'━━━━━━━━━━━━━━━\n🔥 *דיל חם!* 🔥\n━━━━━━━━━━━━━━━');
-  await sendProduct(GROUP_CHAT_ID,products[0],1);
-}
-
-async function announceKing(){
-  var king=null,max=0;for(var p in searchCount)if(searchCount[p]>max){max=searchCount[p];king=p;}
-  if(king&&max>0){await sendMsg(GROUP_CHAT_ID,'━━━━━━━━━━━━━━━\n👑 *מלך הקבוצה!*\n━━━━━━━━━━━━━━━\n\n@'+king+' חיפש/ה *'+max+'* פעמים!\n🏆 כל הכבוד! 🔥\n━━━━━━━━━━━━━━━');for(var k in searchCount)delete searchCount[k];}
-}
-
-async function handleAdmin(text,chatId){
-  var cmd=text.trim();
-  if(cmd==='!דיל'){await sendDeal();await sendMsg(chatId,'✅ דיל נשלח!');return;}
-  if(cmd==='!סקר'){await startPoll();await sendMsg(chatId,'✅ סקר נשלח!');return;}
-  if(cmd==='!תוצאות'){await sendPollResults();return;}
-  if(cmd==='!מלך'){await announceKing();return;}
-  if(cmd.indexOf('!הקפא ')===0){var n=cmd.replace('!הקפא ','').replace(/^0/,'');if(frozenUsers.indexOf(n)===-1)frozenUsers.push(n);await sendMsg(chatId,'✅ הוקפא!');return;}
-  if(cmd.indexOf('!שחרר ')===0){var n2=cmd.replace('!שחרר ','').replace(/^0/,'');var idx=frozenUsers.indexOf(n2);if(idx!==-1)frozenUsers.splice(idx,1);await sendMsg(chatId,'✅ שוחרר!');return;}
-  if(cmd.indexOf('!VIP ')===0){var n3=cmd.replace('!VIP ','').replace(/^0/,'');if(vipUsers.indexOf(n3)===-1)vipUsers.push(n3);await sendMsg(GROUP_CHAT_ID,'👑 @'+n3+' קיבל/ה VIP! 🌟');return;}
-  if(cmd.indexOf('!הודעה ')===0){await sendMsg(GROUP_CHAT_ID,'━━━━━━━━━━━━━━━\n📢 *הודעה מהמנהל:*\n━━━━━━━━━━━━━━━\n\n'+cmd.replace('!הודעה ','')+'\n━━━━━━━━━━━━━━━');return;}
-  if(cmd==='!עזרה'){await sendMsg(chatId,'!דיל !סקר !תוצאות !מלך !מצב !הקפא [מספר] !שחרר [מספר] !VIP [מספר] !הודעה [טקסט]');return;}
-}
-
-async function doSearch(senderPhone,senderName,chatId,searchQuery){
-  if(!userMemory[senderPhone])userMemory[senderPhone]=[];
-  userMemory[senderPhone].push(searchQuery);
-  searchCount[senderPhone]=(searchCount[senderPhone]||0)+1;
-  popularSearches[searchQuery]=(popularSearches[searchQuery]||0)+1;
-  var total=searchCount[senderPhone];
-
-  await sendMsg(senderPhone+'@c.us','🔔 שלום *'+senderName+'*!\n\nהמוצר שלך בדרך! 📦');
-  await sendTyping(chatId);
-  await sleep(1500);
-
-  var products=await searchAliExpress(searchQuery,true);
-
-  if(!products||products.length===0){
-    await sendMsg(chatId,'@'+senderName+' 😕 לא מצאתי מוצרים מדויקים עבור *'+searchQuery+'*. נסה/י מילים ספציפיות יותר!');
-    return;
-  }
-
-  await sendMsg(chatId,'@'+senderName+' ✅ *מצאתי עבורך '+searchQuery+'!*');
-  await sendProduct(chatId,products[0],1);
-  if(products.length>1){await sendProduct(chatId,products[1],2);}
-
-  if(total===5)await sendMsg(chatId,'🎉 @'+senderName+' החיפוש ה-5 שלך!');
-  else if(total===10)await sendMsg(chatId,'🏆 @'+senderName+' *10 חיפושים!* מלך הדילים! 👑');
-}
-
-function scheduleDeal(){setTimeout(async function(){await sendDeal();setInterval(async function(){await sendDeal();},3*60*60*1000);},2*60*1000);}
-
-// ===== Webhook Handling (כולל הכל!) =====
-app.post('/webhook',async function(req,res){
-  res.sendStatus(200);
-  try{
-    var body=req.body;if(!body)return;
-    var sd=body.senderData||{};
-    var senderRaw=sd.sender||'';var senderName=sd.senderName||'חבר';var chatId=sd.chatId||'';var senderPhone=getPhone(senderRaw);
-
-    if(body.typeWebhook==='groupParticipantsAdded'){
-      var newMembers=body.participants||[];
-      for(var nm=0;nm<newMembers.length;nm++){var np=getPhone(newMembers[nm].participant||'');if(np)await startNewUserFlow(np,newMembers[nm].participantName||'חבר/ה');}
-      return;
-    }
-
-    if(body.typeWebhook!=='incomingMessageReceived')return;
-    var md=body.messageData||{};
-    if(!md||md.typeMessage!=='textMessage')return;
-    var text=md.textMessageData.textMessage;
-
-    if(newUserFlow[senderPhone]){var h=await handleNewUserAnswer(senderPhone,senderName,text);if(h)return;}
-
-    if(clarificationFlow[senderPhone]){
-      var cf=clarificationFlow[senderPhone];
-      var cNum=parseInt(text.trim());
-      if(!isNaN(cNum)&&cNum>=1&&cNum<=cf.o.length){
-        var chosen=cf.o[cNum-1];
-        delete clarificationFlow[senderPhone];
-        await doSearch(senderPhone,senderName,chatId,chosen);
-        return;
-      }
-    }
-
-    if(isAdmin(senderRaw)&&text.charAt(0)==='!'){await handleAdmin(text,chatId);return;}
-    if(pollActive && !isAdmin(senderRaw)){var vn=parseInt(text.trim());if(!isNaN(vn)&&vn>=1&&vn<=POLL_OPTIONS.length){pollVotes[vn]++;await sendMsg(chatId,'✅ @'+senderName+' הצבעת בהצלחה!');return;}}
-
-    if(isFrozen(senderRaw))return;
-    if(hasSpam(text)){await sendMsg(chatId,'🚫 @'+senderName+' פרסומות אסורות!');return;}
-
-    if(hasBadWord(text)){
-      warningCount[senderPhone]=(warningCount[senderPhone]||0)+1;var w=warningCount[senderPhone];
-      if(w>=3){
-        await removeFromGroup(senderPhone);
-        await sendMsg(GROUP_CHAT_ID,'🚫 @'+senderName+' הודח עקב קללות.');
-        frozenUsers.push(senderPhone);
-      }else{
-        await sendMsg(chatId,'⚠️ @'+senderName+' אזהרה '+w+'/3! אל תקלל.');
-      }
-      return;
-    }
-
-    var triggerFound=false,searchQuery=text;
-    for(var t=0;t<TRIGGER_WORDS.length;t++){if(text.indexOf(TRIGGER_WORDS[t])!==-1){triggerFound=true;searchQuery=searchQuery.split(TRIGGER_WORDS[t]).join('').trim();}}
+async function sendProduct(chatId, product, num) {
+    let caption = `━━━━━━━━━━━━━━━\n${num}️⃣ *${product.title}*\n━━━━━━━━━━━━━━━\n`;
+    if (product.originalPrice > product.price) {
+        let disc = Math.round((1 - product.price / product.originalPrice) * 100);
+        caption += `💰 *₪${product.price}* ~~₪${product.originalPrice}~~ 🏷️ -${disc}%\n`;
+    } else caption += `💰 מחיר: *₪${product.price}*\n`;
     
-    if(!triggerFound)return;
-    if(!searchQuery||searchQuery.length<2){await sendMsg(chatId,'🎧 כתוב/י: *אני מחפש + שם המוצר*');return;}
+    caption += `🚚 משלוח חינם!\n${getStars(product.rating)}\n📦 ${Number(product.sales).toLocaleString()} מכירות\n🔗 ${product.link}\n━━━━━━━━━━━━━━━`;
+    if (product.image) await sendImage(chatId, product.image, caption);
+    else await sendMsg(chatId, caption);
+}
 
-    // שאלת הבהרה
-    for(var ck in CLARIFICATION){
-      if(searchQuery===ck||searchQuery.trim()===ck){
-        var cq=CLARIFICATION[ck];
-        clarificationFlow[senderPhone]={o:cq.o,chatId:chatId};
-        await sendMsg(chatId,'@'+senderName+' '+cq.q);
-        return;
-      }
+// ===== לוגיקת סוכן AI אינטראקטיבית (החוויה המקסימלית) =====
+async function startAgentFlow(senderPhone, senderName, chatId, query) {
+    await sendTyping(chatId);
+    const clarification = await getAgentClarification(query);
+    if (!clarification) { await doFinalSearch(senderPhone, senderName, chatId, query); return; }
+
+    agentFlow[senderPhone] = { query, step: 1, chatId, clarification, answers: [] };
+    await sendMsg(chatId, `@${senderName} 🕵️ *הסוכן נכנס לפעולה!*\nשלחתי לך 2 שאלות בפרטי לדיוק החיפוש. נתראה עוד רגע! 😉`);
+
+    let qMsg = `🕵️ *שלום ${senderName}, אני הסוכן האישי שלך!*\n\nבוא נדייק את החיפוש עבור: *"${query}"*\n\n❓ *${clarification.q1}*\n\n`;
+    clarification.options1.forEach((opt, i) => qMsg += `${i+1}️⃣ ${opt}\n`);
+    await sendMsg(senderPhone + '@c.us', qMsg + `\n_ענה עם מספר_`);
+}
+
+async function handleAgentAnswer(senderPhone, senderName, text) {
+    const flow = agentFlow[senderPhone]; if (!flow) return false;
+    const num = parseInt(text.trim());
+    if (flow.step === 1) {
+        if (isNaN(num) || num < 1 || num > flow.clarification.options1.length) return true;
+        flow.answers.push(flow.clarification.options1[num-1]); flow.step = 2;
+        let qMsg = `🕵️ *מעולה!*\n\n❓ *${flow.clarification.q2}*\n\n`;
+        flow.clarification.options2.forEach((opt, i) => qMsg += `${i+1}️⃣ ${opt}\n`);
+        await sendMsg(senderPhone + '@c.us', qMsg + `\n_ענה עם מספר_`);
+        return true;
     }
+    if (flow.step === 2) {
+        if (isNaN(num) || num < 1 || num > flow.clarification.options2.length) return true;
+        flow.answers.push(flow.clarification.options2[num-1]);
+        await sendMsg(senderPhone + '@c.us', `✅ *תודה!* אני חוזר לקבוצה עם התוצאות הכי טובות!`);
+        await doFinalSearch(senderPhone, senderName, flow.chatId, `${flow.query} ${flow.answers.join(' ')}`);
+        delete agentFlow[senderPhone]; return true;
+    }
+    return false;
+}
 
-    await doSearch(senderPhone,senderName,chatId,searchQuery);
+async function doFinalSearch(senderPhone, senderName, chatId, finalQuery) {
+    await sendMsg(chatId, `🕵️ *הסוכן חזר!* @${senderName}, הנה מה שמצאתי עבור "${finalQuery}" 👇`);
+    const products = await searchAliExpress(finalQuery, true);
+    if (products.length > 0) {
+        for (let i = 0; i < products.length; i++) {
+            await sendProduct(chatId, products[i], i + 1);
+            await sleep(1000);
+        }
+    } else await sendMsg(chatId, `😕 לא מצאתי מוצר מספיק איכותי עבור "${finalQuery}".`);
+}
 
-  }catch(e){console.error('Error:'+e.message);}
+// ===== שאלון חבר חדש (Survey Logic) =====
+async function startNewUserFlow(phone, name) {
+    newUserFlow[phone] = { step: 1, name, answers: {} };
+    await sendMsg(phone + '@c.us', WELCOME_INFO);
+    await sleep(2000);
+    await sendMsg(phone + '@c.us', SURVEY_Q1);
+}
+
+async function handleNewUserAnswer(phone, name, text) {
+    const flow = newUserFlow[phone]; if (!flow) return false;
+    const num = parseInt(text.trim());
+    if (flow.step === 1) {
+        if (isNaN(num) || num < 1 || num > 5) { await sendMsg(phone + '@c.us', '⚠️ בחר 1-5'); return true; }
+        flow.answers.q1 = Q1A[num]; flow.step = 2;
+        await sendMsg(phone + '@c.us', SURVEY_Q2); return true;
+    }
+    if (flow.step === 2) {
+        if (isNaN(num) || num < 1 || num > 4) { await sendMsg(phone + '@c.us', '⚠️ בחר 1-4'); return true; }
+        flow.answers.q2 = Q2A[num]; flow.step = 3;
+        await sendMsg(phone + '@c.us', SURVEY_Q3); return true;
+    }
+    if (flow.step === 3) {
+        if (isNaN(num) || num < 1 || num > 5) { await sendMsg(phone + '@c.us', '⚠️ בחר 1-5'); return true; }
+        flow.answers.q3 = Q3A[num]; flow.step = 0;
+        await sendMsg(phone + '@c.us', SURVEY_DONE);
+        await sendToAdmins(`📋 *חבר/ה חדש/ה!* \n👤 ${name} \n🔍 ${flow.answers.q1} \n📣 ${flow.answers.q3}`);
+        delete newUserFlow[phone]; return true;
+    }
+    return false;
+}
+
+// ===== פונקציות ניהול (Admin Commands) =====
+async function handleAdmin(text, chatId) {
+    const cmd = text.trim();
+    if (cmd === '!דיל') { await sendDeal(); return; }
+    if (cmd === '!סקר') { await startPoll(); return; }
+    if (cmd === '!מצב') { await sendMsg(chatId, `📊 *סטטוס:* ${frozenUsers.length} מוקפאים`); return; }
+    if (cmd === '!בוקר') { await sendMsg(GROUP_CHAT_ID, '━━━━━━━━━━━━━━━\n☀️ *בוקר טוב!*\n━━━━━━━━━━━━━━━'); return; }
+    if (cmd === '!ערב') { await sendMsg(GROUP_CHAT_ID, '━━━━━━━━━━━━━━━\n🌙 *ערב טוב!*\n━━━━━━━━━━━━━━━'); return; }
+    if (cmd.startsWith('!הקפא ')) { frozenUsers.push(cmd.split(' ')[1]); await sendMsg(chatId, '✅ הוקפא'); return; }
+    if (cmd === '!עזרה') { await sendMsg(chatId, '!דיל !סקר !מלך !מצב !הקפא !שחרר !VIP !בוקר !ערב'); return; }
+}
+
+async function startPoll() {
+    pollActive = true; for (let i = 1; i <= POLL_OPTIONS.length; i++) pollVotes[i] = 0;
+    let msg = `━━━━━━━━━━━━━━━\n📊 *סקר שבועי!*\n━━━━━━━━━━━━━━━\n\n`;
+    POLL_OPTIONS.forEach((opt, i) => msg += `${i+1}. ${opt}\n`);
+    msg += `\n✍️ *ענו עם המספר!*`;
+    await sendMsg(GROUP_CHAT_ID, msg);
+}
+
+async function sendDeal() {
+    const products = await searchAliExpress('hot sale gadget', false);
+    if (products.length > 0) {
+        await sendMsg(GROUP_CHAT_ID, `🔥 *דיל היום מהסוכן!* 🔥`);
+        await sendProduct(GROUP_CHAT_ID, products[0], 1);
+    }
+}
+
+async function announceKing() {
+    let king = null, max = 0;
+    for (let p in searchCount) if (searchCount[p] > max) { max = searchCount[p]; king = p; }
+    if (king) await sendMsg(GROUP_CHAT_ID, `👑 *מלך הקבוצה:* @${king} עם ${max} חיפושים! 🏆`);
+}
+
+// ===== Webhook Handler (הכל כאן!) =====
+app.post('/webhook', async (req, res) => {
+    res.sendStatus(200);
+    try {
+        const body = req.body; if (!body) return;
+        const sd = body.senderData || {};
+        const senderRaw = sd.sender || '';
+        const senderPhone = getPhone(senderRaw);
+        const senderName = sd.senderName || 'חבר';
+        const chatId = sd.chatId || '';
+
+        if (body.typeWebhook === 'groupParticipantsAdded') {
+            await startNewUserFlow(senderPhone, senderName); return;
+        }
+
+        if (body.typeWebhook !== 'incomingMessageReceived') return;
+        const md = body.messageData || {};
+        if (md.typeMessage !== 'textMessage') return;
+        const text = md.textMessageData.textMessage;
+
+        if (chatId.includes('@c.us')) {
+            if (newUserFlow[senderPhone]) { await handleNewUserAnswer(senderPhone, senderName, text); return; }
+            if (agentFlow[senderPhone]) { await handleAgentAnswer(senderPhone, senderName, text); return; }
+        }
+
+        if (isAdmin(senderRaw) && text.startsWith('!')) { await handleAdmin(text, chatId); return; }
+        if (isFrozen(senderRaw)) return;
+        if (hasBadWord(text)) {
+            warningCount[senderPhone] = (warningCount[senderPhone] || 0) + 1;
+            if (warningCount[senderPhone] >= 3) { await removeFromGroup(senderPhone); frozenUsers.push(senderPhone); }
+            else await sendMsg(chatId, `⚠️ @${senderName} אזהרה ${warningCount[senderPhone]}/3!`);
+            return;
+        }
+
+        let triggerFound = false, searchQuery = text;
+        for (let t of TRIGGER_WORDS) {
+            if (text.includes(t)) {
+                triggerFound = true;
+                searchQuery = text.replace(t, '').trim();
+                break;
+            }
+        }
+
+        if (triggerFound && searchQuery.length > 1) {
+            await startAgentFlow(senderPhone, senderName, chatId, searchQuery);
+        }
+
+    } catch (e) { console.error('Error'); }
 });
 
-app.get('/',function(req,res){res.send('🤖 הבוט הפרימיום פועל!');});
-var PORT=process.env.PORT||3000;
-app.listen(PORT,function(){
-  console.log('🚀 הבוט פועל על פורט '+PORT);
-  scheduleDeal();
-  setInterval(function(){axios.get('https://aliexpress-bot-brr6.onrender.com').catch(function(){});},25000);
+app.get('/', (req, res) => res.send('🤖 Full AI Shopping Agent is Online!'));
+app.listen(process.env.PORT || 3000, () => {
+    console.log('🚀 הבוט המלא פועל!');
+    setInterval(() => axios.get('https://aliexpress-bot-brr6.onrender.com').catch(() => {}), 25000);
 });
