@@ -35,7 +35,6 @@ const vipUsers = [];
 const warningCount = {};
 const popularSearches = {};
 const newUserFlow = {};
-const agentFlow = {};
 let pollActive = false;
 let pollVotes = {};
 let pollTimeout = null;
@@ -45,17 +44,6 @@ const TRIGGER_WORDS = ['אני מחפש','אני מחפשת','חפש לי','חפ
 const BAD_WORDS = ['זין','כוס','שרמוטה','זונה','מניאק','ממזר','אידיוט','טמבל','מפגר','חרא','בן זונה','كس','زبي','شرموطة','fuck','shit','bitch','asshole','bastard','idiot'];
 const SPAM_WORDS = ['הצטרפו','קבוצה חדשה','דרושים','טלגרם','השקעה','הרוויחו','ביטקוין','הימור','קזינו'];
 const POLL_OPTIONS = ['🎧 אוזניות','⌚ שעונים חכמים','🏠 מוצרי בית','👗 ביגוד','⚽ ספורט','💻 אלקטרוניקה','🧸 צעצועים','🍳 מטבח','💄 יופי','🔧 כלי עבודה'];
-
-const CLARIFICATION = {
-  'טלפון': { q:'📱 *איזה סוג טלפון?*\n\n1️⃣ אייפון\n2️⃣ סמסונג\n3️⃣ שיאומי\n4️⃣ אנדרואיד', o:['iphone smartphone','samsung galaxy smartphone','xiaomi smartphone','android smartphone'] },
-  'אוזניות': { q:'🎧 *איזה אוזניות?*\n\n1️⃣ בלוטות אלחוטיות\n2️⃣ TWS כפתור\n3️⃣ ביטול רעשים\n4️⃣ עם חוט', o:['bluetooth headphones','tws earbuds','noise cancelling headphones','wired earphones'] },
-  'שעון': { q:'⌚ *איזה שעון?*\n\n1️⃣ שעון חכם\n2️⃣ שעון ספורט\n3️⃣ שעון אנלוגי', o:['smartwatch','sport fitness watch','analog watch'] },
-  'מטען': { q:'🔌 *איזה מטען?*\n\n1️⃣ מהיר USB-C\n2️⃣ אלחוטי\n3️⃣ פאוורבנק\n4️⃣ רכב', o:['fast charger usbc','wireless charger','power bank','car charger'] },
-  'תיק': { q:'👜 *איזה תיק?*\n\n1️⃣ תיק גב\n2️⃣ תיק יד\n3️⃣ תיק מחשב', o:['backpack','shoulder bag','laptop bag'] },
-  'מחשב': { q:'💻 *איזה מחשב?*\n\n1️⃣ לפטופ\n2️⃣ טאבלט\n3️⃣ מיני PC', o:['laptop','tablet','mini pc'] },
-  'נעליים': { q:'👟 *איזה נעליים?*\n\n1️⃣ ספורט\n2️⃣ קז\'ואל\n3️⃣ עקבים\n4️⃣ סנדלים', o:['running shoes','casual sneakers','high heels','sandals'] },
-  'רמקול': { q:'🔊 *איזה רמקול?*\n\n1️⃣ בלוטות נייד\n2️⃣ עמיד למים\n3️⃣ רמקול בית', o:['bluetooth speaker','waterproof speaker','home speaker'] }
-};
 
 const WELCOME_INFO = '👋 *ברוכים הבאים לקבוצת '+GROUP_NAME+'!* 🎉\n\n━━━━━━━━━━━━━━━\n🤖 *איך מחפשים מוצר?*\n━━━━━━━━━━━━━━━\n\nכתוב בקבוצה:\n_"אני מחפש + שם המוצר"_\n\n📌 *דוגמאות:*\n• אני מחפש אוזניות בלוטות\n• מחפשת שעון חכם\n\n🎁 *מה תקבל?*\n• 2 מוצרים עם תמונות\n• מחיר בשקלים\n• ביקורות ודירוג\n• לינק לרכישה!\n\n⚠️ *כללי הקבוצה:*\n• אסור לקלל — 3 קללות = הוצאה!\n• אסור ספאם 🙏\n\n━━━━━━━━━━━━━━━\nכמה שאלות קצרות 👇';
 const SURVEY_Q1 = '━━━━━━━━━━━━━━━\n❓ *שאלה 1/2*\n━━━━━━━━━━━━━━━\n\nמה *הכי מעניין* אותך?\n\n1️⃣ אלקטרוניקה\n2️⃣ ביגוד\n3️⃣ מוצרי בית\n4️⃣ ספורט\n5️⃣ הכל!\n\n_ענה/י עם מספר_';
@@ -190,33 +178,10 @@ async function searchAndSend(chatId, senderName, queryHe) {
   }
 }
 
-// שאלות הבהרה + שאלון
+// חיפוש ישיר
 async function processSearch(senderRaw, senderName, chatId, searchQuery) {
-  const senderPhone = getPhone(senderRaw);
-  let foundKey = null;
-  for(let key in CLARIFICATION){if(searchQuery.indexOf(key)!==-1){foundKey=key;break;}}
-
-  if(foundKey){
-    agentFlow[senderPhone]={options:CLARIFICATION[foundKey].o,chatId:chatId};
-    await sendMsg(chatId,'@'+senderName+' 🕵️ *שלחתי לך הודעה בפרטי לדייק את החיפוש!*');
-    await sendMsg(senderPhone+'@c.us','שלום '+senderName+'! מחפש '+foundKey+'?\n\n'+CLARIFICATION[foundKey].q+'\n\n_ענה/י עם המספר_');
-  } else {
-    await sendTyping(chatId);
-    await searchAndSend(chatId, senderName, searchQuery);
-  }
-}
-
-async function handlePrivateAnswer(senderRaw, senderName, text) {
-  const senderPhone = getPhone(senderRaw);
-  const flow = agentFlow[senderPhone];
-  if(!flow) return false;
-  const num = parseInt(text.trim());
-  if(isNaN(num)||num<1||num>flow.options.length){await sendMsg(senderPhone+'@c.us','⚠️ ענה/י עם מספר 1-'+flow.options.length);return true;}
-  const exactQuery = flow.options[num-1];
-  await sendMsg(senderPhone+'@c.us','✅ *תודה!* המוצרים בדרך לקבוצה 🔥');
-  await searchAndSend(flow.chatId, senderName, exactQuery);
-  delete agentFlow[senderPhone];
-  return true;
+  await sendTyping(chatId);
+  await searchAndSend(chatId, senderName, searchQuery);
 }
 
 async function startNewUserFlow(phone, name){
@@ -327,7 +292,6 @@ app.post('/webhook', async(req,res)=>{
     console.log('📩 '+senderPhone+' ('+senderName+') | '+text.substring(0,35));
 
     if(newUserFlow[senderPhone]){const h=await handleNewUserAnswer(senderPhone,senderName,text);if(h)return;}
-    if(chatId.includes('@c.us')&&agentFlow[senderPhone]){const handled=await handlePrivateAnswer(senderRaw,senderName,text);if(handled)return;}
     if(isAdmin(senderRaw)&&text.startsWith('!')){await handleAdmin(text,chatId);return;}
 
     if(pollActive&&!isAdmin(senderRaw)){const vn=parseInt(text.trim());if(!isNaN(vn)&&vn>=1&&vn<=POLL_OPTIONS.length){pollVotes[vn]++;await sendMsg(chatId,'✅ @'+senderName+' הצבעת על: *'+POLL_OPTIONS[vn-1]+'*\nתודה! 🙏');return;}}
