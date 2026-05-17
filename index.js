@@ -13,6 +13,7 @@ const ALI_TRACKING_ID = 'bot01';
 const GROUP_CHAT_ID = '120363424186489979@g.us';
 const GROUP_NAME = 'דילים שווים';
 const ADMIN_NUMBERS = ['972538800370', '972557119650'];
+const SCRAPER_KEY = '84d4a6b717aad7db03154d7b00c2df3a';
 
 // שער דולר אוטומטי
 let USD_TO_ILS = 3.75;
@@ -187,11 +188,103 @@ async function removeFromGroup(phone){
   catch(e){return false;}
 }
 
+
+// ===== ScraperAPI — גרידת אלי אקספרס ישירות =====
+async function scrapeAliExpress(queryEn) {
+  try {
+    const aliUrl = 'https://www.aliexpress.com/wholesale?SearchText=' + encodeURIComponent(queryEn) + '&SortType=total_tranpro_desc';
+    const res = await axios.get('http://api.scraperapi.com', {
+      params: { api_key: SCRAPER_KEY, url: aliUrl, country_code: 'us', device_type: 'desktop' },
+      timeout: 30000
+    });
+
+    const html = res.data;
+    if(!html || html.includes('captcha') || html.includes('robot')) {
+      console.log('⚠️ ScraperAPI חסום');
+      return [];
+    }
+
+    // חלץ productIds מה-HTML
+    const idMatches = [...html.matchAll(/"productId"\s*[=:]\s*"?(\d{8,})"?/g)];
+    if(!idMatches || idMatches.length === 0) {
+      console.log('⚠️ ScraperAPI: לא נמצאו מוצרים');
+      return [];
+    }
+
+    console.log('🎯 ScraperAPI מצא '+idMatches.length+' מוצרים');
+
+    // חלץ נתוני מוצרים
+    const products = [];
+    const seenIds = new Set();
+
+    for(const match of idMatches) {
+      const productId = match[1];
+      if(seenIds.has(productId)) continue;
+      seenIds.add(productId);
+
+      // חלץ כותרת
+      const titleRegex = new RegExp(productId + '[^}]{0,500}?"title"\s*:\s*"([^"]{10,})"', 's');
+      const titleMatch = html.match(titleRegex);
+      const title = titleMatch ? titleMatch[1] : null;
+
+      // בדוק רלוונטיות
+      if(title && !isMainProduct(title, queryEn)) continue;
+
+      // חלץ מחיר
+      const priceRegex = new RegExp(productId + '[^}]{0,300}?"price"\s*:\s*"?([0-9.]+)"?', 's');
+      const priceMatch = html.match(priceRegex);
+      const price = priceMatch ? priceMatch[1] : null;
+
+      // חלץ דירוג
+      const ratingRegex = new RegExp(productId + '[^}]{0,400}?"starRating"\s*:\s*"?([0-9.]+)"?', 's');
+      const ratingMatch = html.match(ratingRegex);
+      const rating = ratingMatch ? ratingMatch[1] : '4.5';
+
+      // חלץ תמונה
+      const imgRegex = new RegExp(productId + '[^}]{0,600}?"imageUrl"\s*:\s*"([^"]+)"', 's');
+      const imgMatch = html.match(imgRegex);
+      const image = imgMatch ? imgMatch[1].replace(/\\/g,'') : null;
+
+      // בנה קישור שותפים
+      const affiliateLink = 'https://www.aliexpress.com/item/'+productId+'.html?aff_platform=portals-tool&sk=_dV4Bh9T&aff_trace_key='+ALI_TRACKING_ID+'&terminal_id='+ALI_APP_KEY;
+
+      if(price && parseFloat(price) > 0) {
+        products.push({
+          productId,
+          title: title || ('מוצר '+productId),
+          price,
+          rating,
+          image: image ? (image.startsWith('//') ? 'https:'+image : image) : null,
+          link: affiliateLink,
+          sales: 0
+        });
+      }
+
+      if(products.length >= 2) break;
+    }
+
+    console.log('✅ ScraperAPI: '+products.length+' מוצרים רלוונטיים');
+    return products;
+
+  } catch(e) {
+    console.error('❌ ScraperAPI:', e.message);
+    return [];
+  }
+}
+
 // ===== מנוע החיפוש עם Cache + פילטר =====
 async function fetchProducts(queryEn) {
   // בדוק Cache קודם
   const cached = getCached(queryEn);
   if(cached) return cached;
+
+  // נסה ScraperAPI קודם — תוצאות מדויקות 100%
+  const scraped = await scrapeAliExpress(queryEn);
+  if(scraped && scraped.length > 0) {
+    setCache(queryEn, scraped);
+    return scraped;
+  }
+  console.log('⬇️ נסה AliExpress API...');
 
   const timestamp = Date.now().toString();
   const params = {
