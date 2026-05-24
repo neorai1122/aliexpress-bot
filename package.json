@@ -1,13 +1,15 @@
 {
-  "name": "aliexpress-whatsapp-bot",
+  "name": "aliexpress-bot",
   "version": "1.0.0",
-  "description": "בוט וואטסאפ שמחפש מוצרים באלי אקספרס",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "axios": "^1.6.0"
+    "axios": "^1.6.8",
+    "express": "^4.18.2"
+  },
+  "engines": {
+    "node": "20.x"
   }
 }
