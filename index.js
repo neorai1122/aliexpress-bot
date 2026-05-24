@@ -2,395 +2,136 @@ const express = require('express');
 const axios = require('axios');
 
 const app = express();
-
 app.use(express.json());
 
-/* ====================================
-   CONFIG
-==================================== */
-
-const PORT = process.env.PORT || 3000;
-
 const INSTANCE_ID = '7107614702';
-
-const API_TOKEN =
-  'aaf1035940284f4e80553c38cee6ffadd2704e160e1e4895ae';
-
-const GREEN_API_URL =
-  `https://7107.api.greenapi.com/waInstance${INSTANCE_ID}`;
-
+const API_TOKEN = 'aaf1035940284f4e80553c38cee6ffadd2704e160e1e4895ae';
+const GREEN_API_URL = `https://7107.api.greenapi.com/waInstance${INSTANCE_ID}`;
 const ALI_TRACKING_ID = 'bot01';
-
 const ALI_APP_KEY = '533908';
 
-/* ====================================
-   CACHE
-==================================== */
+const TRIGGER_WORDS = ['אני מחפש', 'חפש לי', 'מישהו מכיר', 'אני צריך', 'מחפש'];
 
-const cache = {};
-
-const CACHE_TIME = 1000 * 60 * 5;
-
-/* ====================================
-   TRIGGERS
-==================================== */
-
-const TRIGGERS = [
-  'אני מחפש',
-  'מחפש',
-  'חפש לי',
-  'אני צריך',
-  'מישהו מכיר'
-];
-
-/* ====================================
-   HELPERS
-==================================== */
-
-function sleep(ms) {
-
-  return new Promise(resolve => setTimeout(resolve, ms));
+function buildAffiliateLink(productId) {
+  return `https://s.click.aliexpress.com/e/_${productId}?aff_id=${ALI_APP_KEY}&aff_sub=${ALI_TRACKING_ID}`;
 }
 
-function cleanQuery(text) {
-
-  return text
-    .replace(/אני מחפש/g, '')
-    .replace(/מחפש/g, '')
-    .replace(/חפש לי/g, '')
-    .replace(/אני צריך/g, '')
-    .replace(/מישהו מכיר/g, '')
-    .replace(/בזול/g, '')
-    .replace(/טוב/g, '')
-    .replace(/טובות/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function buildAffiliateLink(query) {
-
-  const encodedQuery = encodeURIComponent(query);
-
-  return (
-    `https://www.aliexpress.com/wholesale?SearchText=${encodedQuery}` +
-    `&SortType=total_tranpro_desc` +
-    `&aff_platform=portals-tool` +
-    `&sk=_dV4Bh9T` +
-    `&aff_trace_key=${ALI_TRACKING_ID}` +
-    `&terminal_id=${ALI_APP_KEY}`
-  );
-}
-
-/* ====================================
-   SEARCH PRODUCTS
-==================================== */
-
-async function searchProducts(query) {
-
-  /* CACHE */
-
-  if (cache[query]) {
-
-    const saved = cache[query];
-
-    if (Date.now() - saved.time < CACHE_TIME) {
-
-      console.log('⚡ CACHE');
-
-      return saved.products;
-    }
-  }
-
-  const encodedQuery = encodeURIComponent(query);
-
-  const searchUrl =
-    `https://www.aliexpress.com/wholesale?SearchText=${encodedQuery}`;
-
-  /* RETRY SYSTEM */
-
-  for (let attempt = 1; attempt <= 3; attempt++) {
-
-    try {
-
-      console.log(`🔍 SEARCH ${attempt}: ${query}`);
-
-      const response = await axios.get(searchUrl, {
-
-        headers: {
-
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36',
-
-          'Accept-Language':
-            'en-US,en;q=0.9',
-
-          'Accept':
-            'text/html,application/xhtml+xml'
-        },
-
-        timeout: 7000
-      });
-
-      const html = response.data;
-
-      /* BLOCK DETECT */
-
-      if (
-        html.includes('captcha') ||
-        html.includes('robot') ||
-        html.includes('punish')
-      ) {
-
-        console.log('❌ BLOCKED');
-
-        await sleep(1000);
-
-        continue;
-      }
-
-      const products = [];
-
-      /* REGEX */
-
-      const regex =
-        /"title":"(.*?)".*?"minPrice":"(.*?)"/gs;
-
-      let match;
-
-      let count = 0;
-
-      while ((match = regex.exec(html)) !== null && count < 4) {
-
-        let title = match[1]
-          .replace(/\\"/g, '')
-          .replace(/&#39;/g, "'")
-          .replace(/&quot;/g, '"')
-          .replace(/\\u[\dA-F]{4}/gi, '')
-          .substring(0, 70);
-
-        let price = match[2];
-
-        if (!title || title.length < 5) {
-          continue;
-        }
-
-        products.push({
-          title,
-          price
-        });
-
-        count++;
-      }
-
-      /* FALLBACK */
-
-      if (products.length === 0) {
-
-        products.push({
-          title: `🔍 לחץ לפתיחת החיפוש עבור ${query}`,
-          price: 'פתח לינק'
-        });
-      }
-
-      /* SAVE CACHE */
-
-      cache[query] = {
-        time: Date.now(),
-        products
-      };
-
-      return products;
-
-    } catch (error) {
-
-      console.log('❌ ERROR:', error.message);
-
-      await sleep(1000);
-    }
-  }
-
-  return [
-    {
-      title: `🔍 לחץ לפתיחת החיפוש עבור ${query}`,
-      price: 'פתח לינק'
-    }
-  ];
-}
-
-/* ====================================
-   SEND MESSAGE
-==================================== */
-
-async function sendMessage(chatId, message) {
-
+async function searchAliExpress(query) {
   try {
-
-    await axios.post(
-
-      `${GREEN_API_URL}/sendMessage/${API_TOKEN}`,
-
-      {
-        chatId,
-        message
-      },
-
-      {
-        timeout: 5000
-      }
+    const encodedQuery = encodeURIComponent(query);
+    const searchUrl = `https://www.aliexpress.com/wholesale?SearchText=${encodedQuery}&SortType=total_tranpro_desc`;
+    
+    const response = await axios.get(
+      `https://api.allorigins.win/get?url=${encodeURIComponent(searchUrl)}`,
+      { timeout: 10000 }
     );
 
-  } catch (error) {
+    const html = response.data.contents;
+    const products = [];
+    
+    const regex = /"productId":"(\d+)","title":"([^"]+)","price":\{"min":"([^"]+)"/g;
+    let match;
+    let count = 0;
+    
+    while ((match = regex.exec(html)) !== null && count < 4) {
+      const productId = match[1];
+      const title = match[2].replace(/\\u[\dA-F]{4}/gi, '').substring(0, 60);
+      const price = match[3];
+      
+      products.push({
+        id: productId,
+        title: title,
+        price: price,
+        link: `https://www.aliexpress.com/item/${productId}.html?aff_platform=portals-tool&sk=_dV4Bh9T&aff_trace_key=${ALI_TRACKING_ID}&terminal_id=${ALI_APP_KEY}`
+      });
+      count++;
+    }
 
-    console.log('❌ SEND ERROR:', error.message);
+    if (products.length === 0) {
+      return buildManualResults(query);
+    }
+
+    return products;
+  } catch (error) {
+    console.error('שגיאה בחיפוש:', error.message);
+    return buildManualResults(query);
   }
 }
 
-/* ====================================
-   BUILD MESSAGE
-==================================== */
+function buildManualResults(query) {
+  const encodedQuery = encodeURIComponent(query);
+  return [{
+    id: 'search',
+    title: `תוצאות חיפוש עבור: ${query}`,
+    price: 'מחירים שונים',
+    link: `https://www.aliexpress.com/wholesale?SearchText=${encodedQuery}&SortType=total_tranpro_desc&aff_platform=portals-tool&sk=_dV4Bh9T&aff_trace_key=${ALI_TRACKING_ID}&terminal_id=${ALI_APP_KEY}`
+  }];
+}
 
-function buildMessage(query, products) {
+async function sendWhatsAppMessage(chatId, message) {
+  try {
+    await axios.post(`${GREEN_API_URL}/sendMessage/${API_TOKEN}`, {
+      chatId: chatId,
+      message: message
+    });
+  } catch (error) {
+    console.error('שגיאה בשליחה:', error.message);
+  }
+}
 
-  let msg =
-    `🛍️ מצאתי עבור:\n` +
-    `*${query}*\n\n`;
+function buildMessage(products, query) {
+  if (products.length === 1 && products[0].id === 'search') {
+    return `🛍️ לחץ כאן לחיפוש *${query}* באלי אקספרס:\n\n${products[0].link}\n\n_קנייה דרך הלינק תומכת בקבוצה_ 🤝`;
+  }
 
+  let msg = `🛍️ מצאתי מוצרים עבור: *${query}*\n\n`;
   products.forEach((product, index) => {
-
-    msg +=
-      `${index + 1}. ${product.title}\n` +
-      `💰 ${product.price}$\n\n`;
+    msg += `${index + 1}. ${product.title}\n`;
+    msg += `💰 מחיר: $${product.price}\n`;
+    msg += `🔗 ${product.link}\n\n`;
   });
-
-  msg +=
-    `🔗 לינק לחיפוש:\n` +
-    `${buildAffiliateLink(query)}\n\n` +
-    `🤝 קנייה דרך הלינק תומכת בבוט`;
-
+  msg += `_כל הלינקים עם הטבות שותפים_ 🤝`;
   return msg;
 }
 
-/* ====================================
-   WEBHOOK
-==================================== */
-
 app.post('/webhook', async (req, res) => {
-
   res.sendStatus(200);
-
   try {
-
     const body = req.body;
-
-    if (
-      !body ||
-      body.typeWebhook !== 'incomingMessageReceived'
-    ) {
-      return;
-    }
-
+    if (!body || body.typeWebhook !== 'incomingMessageReceived') return;
     const messageData = body.messageData;
+    if (!messageData || messageData.typeMessage !== 'textMessage') return;
+    const text = messageData.textMessageData && messageData.textMessageData.textMessage ? messageData.textMessageData.textMessage : '';
+    const chatId = body.senderData && body.senderData.chatId ? body.senderData.chatId : '';
+    if (!text || !chatId) return;
 
-    if (
-      !messageData ||
-      messageData.typeMessage !== 'textMessage'
-    ) {
+    const triggerWord = TRIGGER_WORDS.find(word => text.includes(word));
+    if (!triggerWord) return;
+
+    let searchQuery = text;
+    for (const word of TRIGGER_WORDS) {
+      searchQuery = searchQuery.replace(word, '').trim();
+    }
+
+    if (!searchQuery || searchQuery.length < 2) {
+      await sendWhatsAppMessage(chatId, 'כתוב למשל: אני מחפש אוזניות בלוטות');
       return;
     }
 
-    const text =
-      messageData.textMessageData?.textMessage || '';
-
-    const chatId =
-      body.senderData?.chatId || '';
-
-    if (!text || !chatId) {
-      return;
-    }
-
-    console.log('📩 MESSAGE:', text);
-
-    const triggered = TRIGGERS.some(word =>
-      text.includes(word)
-    );
-
-    if (!triggered) {
-      return;
-    }
-
-    const query = cleanQuery(text);
-
-    if (!query || query.length < 2) {
-
-      await sendMessage(
-        chatId,
-        '❌ תכתוב למשל:\nאני מחפש אוזניות בלוטוס'
-      );
-
-      return;
-    }
-
-    /* FAST RESPONSE */
-
-    await sendMessage(
-      chatId,
-      `🔍 מחפש עכשיו:\n*${query}*\n\nרגע אחד...`
-    );
-
-    /* SEARCH */
-
-    const products =
-      await searchProducts(query);
-
-    /* BUILD */
-
-    const message =
-      buildMessage(query, products);
-
-    /* SEND */
-
-    await sendMessage(chatId, message);
-
+    await sendWhatsAppMessage(chatId, `🔍 מחפש *${searchQuery}* באלי אקספרס... רגע אחד!`);
+    const products = await searchAliExpress(searchQuery);
+    const message = buildMessage(products, searchQuery);
+    await sendWhatsAppMessage(chatId, message);
   } catch (error) {
-
-    console.log('❌ WEBHOOK ERROR:', error.message);
+    console.error('שגיאה:', error.message);
   }
 });
-
-/* ====================================
-   HOME
-==================================== */
 
 app.get('/', (req, res) => {
-
-  res.send('✅ BOT WORKING');
+  res.send('הבוט פועל!');
 });
 
-/* ====================================
-   CACHE CLEANER
-==================================== */
-
-setInterval(() => {
-
-  const now = Date.now();
-
-  for (const key in cache) {
-
-    if (now - cache[key].time > CACHE_TIME) {
-
-      delete cache[key];
-    }
-  }
-
-  console.log('🧹 CACHE CLEAN');
-
-}, 1000 * 60);
-
-/* ====================================
-   START
-==================================== */
-
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-
-  console.log(`🚀 BOT RUNNING ON ${PORT}`);
+  console.log('הבוט פועל על פורט ' + PORT);
 });
