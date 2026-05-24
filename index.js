@@ -5,11 +5,11 @@ const app = express();
 
 app.use(express.json());
 
-const PORT = process.env.PORT || 3000;
+/* ====================================
+   CONFIG
+==================================== */
 
-/* =========================
-   GREEN API
-========================= */
+const PORT = process.env.PORT || 3000;
 
 const INSTANCE_ID = '7107614702';
 
@@ -19,53 +19,60 @@ const API_TOKEN =
 const GREEN_API_URL =
   `https://7107.api.greenapi.com/waInstance${INSTANCE_ID}`;
 
-/* =========================
-   AFFILIATE
-========================= */
-
 const ALI_TRACKING_ID = 'bot01';
 
 const ALI_APP_KEY = '533908';
 
-/* =========================
+/* ====================================
    CACHE
-========================= */
+==================================== */
 
 const cache = {};
 
-/* =========================
+const CACHE_TIME = 1000 * 60 * 5;
+
+/* ====================================
    TRIGGERS
-========================= */
+==================================== */
 
 const TRIGGERS = [
   'אני מחפש',
-  'חפש לי',
   'מחפש',
-  'אני צריך'
+  'חפש לי',
+  'אני צריך',
+  'מישהו מכיר'
 ];
 
-/* =========================
+/* ====================================
    HELPERS
-========================= */
+==================================== */
+
+function sleep(ms) {
+
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 function cleanQuery(text) {
 
   return text
-    .replace('אני מחפש', '')
-    .replace('חפש לי', '')
-    .replace('מחפש', '')
-    .replace('אני צריך', '')
-    .replace('בזול', '')
-    .replace('טוב', '')
+    .replace(/אני מחפש/g, '')
+    .replace(/מחפש/g, '')
+    .replace(/חפש לי/g, '')
+    .replace(/אני צריך/g, '')
+    .replace(/מישהו מכיר/g, '')
+    .replace(/בזול/g, '')
+    .replace(/טוב/g, '')
+    .replace(/טובות/g, '')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
 function buildAffiliateLink(query) {
 
-  const encoded = encodeURIComponent(query);
+  const encodedQuery = encodeURIComponent(query);
 
   return (
-    `https://www.aliexpress.com/wholesale?SearchText=${encoded}` +
+    `https://www.aliexpress.com/wholesale?SearchText=${encodedQuery}` +
     `&SortType=total_tranpro_desc` +
     `&aff_platform=portals-tool` +
     `&sk=_dV4Bh9T` +
@@ -74,110 +81,173 @@ function buildAffiliateLink(query) {
   );
 }
 
-/* =========================
-   SEARCH
-========================= */
+/* ====================================
+   SEARCH PRODUCTS
+==================================== */
 
 async function searchProducts(query) {
 
+  /* CACHE */
+
   if (cache[query]) {
 
-    console.log('CACHE');
+    const saved = cache[query];
 
-    return cache[query];
+    if (Date.now() - saved.time < CACHE_TIME) {
+
+      console.log('⚡ CACHE');
+
+      return saved.products;
+    }
   }
 
   const encodedQuery = encodeURIComponent(query);
 
-  const url =
+  const searchUrl =
     `https://www.aliexpress.com/wholesale?SearchText=${encodedQuery}`;
 
-  try {
+  /* RETRY SYSTEM */
 
-    const response = await axios.get(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0'
-      },
-      timeout: 5000
-    });
+  for (let attempt = 1; attempt <= 3; attempt++) {
 
-    const html = response.data;
+    try {
 
-    const regex =
-      /"title":"(.*?)".*?"minPrice":"(.*?)"/gs;
+      console.log(`🔍 SEARCH ${attempt}: ${query}`);
 
-    const products = [];
+      const response = await axios.get(searchUrl, {
 
-    let match;
+        headers: {
 
-    let count = 0;
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36',
 
-    while ((match = regex.exec(html)) !== null && count < 4) {
+          'Accept-Language':
+            'en-US,en;q=0.9',
 
-      const title = match[1]
-        .replace(/\\"/g, '')
-        .substring(0, 60);
+          'Accept':
+            'text/html,application/xhtml+xml'
+        },
 
-      const price = match[2];
-
-      products.push({
-        title,
-        price
+        timeout: 7000
       });
 
-      count++;
-    }
+      const html = response.data;
 
-    if (products.length === 0) {
+      /* BLOCK DETECT */
 
-      products.push({
-        title: `חיפוש עבור ${query}`,
-        price: 'בדוק באתר'
-      });
-    }
+      if (
+        html.includes('captcha') ||
+        html.includes('robot') ||
+        html.includes('punish')
+      ) {
 
-    cache[query] = products;
+        console.log('❌ BLOCKED');
 
-    return products;
+        await sleep(1000);
 
-  } catch (error) {
-
-    console.log(error.message);
-
-    return [
-      {
-        title: `חיפוש עבור ${query}`,
-        price: 'בדוק באתר'
+        continue;
       }
-    ];
+
+      const products = [];
+
+      /* REGEX */
+
+      const regex =
+        /"title":"(.*?)".*?"minPrice":"(.*?)"/gs;
+
+      let match;
+
+      let count = 0;
+
+      while ((match = regex.exec(html)) !== null && count < 4) {
+
+        let title = match[1]
+          .replace(/\\"/g, '')
+          .replace(/&#39;/g, "'")
+          .replace(/&quot;/g, '"')
+          .replace(/\\u[\dA-F]{4}/gi, '')
+          .substring(0, 70);
+
+        let price = match[2];
+
+        if (!title || title.length < 5) {
+          continue;
+        }
+
+        products.push({
+          title,
+          price
+        });
+
+        count++;
+      }
+
+      /* FALLBACK */
+
+      if (products.length === 0) {
+
+        products.push({
+          title: `🔍 לחץ לפתיחת החיפוש עבור ${query}`,
+          price: 'פתח לינק'
+        });
+      }
+
+      /* SAVE CACHE */
+
+      cache[query] = {
+        time: Date.now(),
+        products
+      };
+
+      return products;
+
+    } catch (error) {
+
+      console.log('❌ ERROR:', error.message);
+
+      await sleep(1000);
+    }
   }
+
+  return [
+    {
+      title: `🔍 לחץ לפתיחת החיפוש עבור ${query}`,
+      price: 'פתח לינק'
+    }
+  ];
 }
 
-/* =========================
+/* ====================================
    SEND MESSAGE
-========================= */
+==================================== */
 
 async function sendMessage(chatId, message) {
 
   try {
 
     await axios.post(
+
       `${GREEN_API_URL}/sendMessage/${API_TOKEN}`,
+
       {
         chatId,
         message
+      },
+
+      {
+        timeout: 5000
       }
     );
 
   } catch (error) {
 
-    console.log(error.message);
+    console.log('❌ SEND ERROR:', error.message);
   }
 }
 
-/* =========================
+/* ====================================
    BUILD MESSAGE
-========================= */
+==================================== */
 
 function buildMessage(query, products) {
 
@@ -193,16 +263,16 @@ function buildMessage(query, products) {
   });
 
   msg +=
-    `🔗 לינק:\n` +
+    `🔗 לינק לחיפוש:\n` +
     `${buildAffiliateLink(query)}\n\n` +
     `🤝 קנייה דרך הלינק תומכת בבוט`;
 
   return msg;
 }
 
-/* =========================
+/* ====================================
    WEBHOOK
-========================= */
+==================================== */
 
 app.post('/webhook', async (req, res) => {
 
@@ -238,6 +308,8 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
+    console.log('📩 MESSAGE:', text);
+
     const triggered = TRIGGERS.some(word =>
       text.includes(word)
     );
@@ -248,49 +320,77 @@ app.post('/webhook', async (req, res) => {
 
     const query = cleanQuery(text);
 
-    if (!query) {
+    if (!query || query.length < 2) {
 
       await sendMessage(
         chatId,
-        '❌ תכתוב למשל:\nאני מחפש אוזניות'
+        '❌ תכתוב למשל:\nאני מחפש אוזניות בלוטוס'
       );
 
       return;
     }
 
+    /* FAST RESPONSE */
+
     await sendMessage(
       chatId,
-      `🔍 מחפש עכשיו:\n${query}`
+      `🔍 מחפש עכשיו:\n*${query}*\n\nרגע אחד...`
     );
+
+    /* SEARCH */
 
     const products =
       await searchProducts(query);
 
+    /* BUILD */
+
     const message =
       buildMessage(query, products);
+
+    /* SEND */
 
     await sendMessage(chatId, message);
 
   } catch (error) {
 
-    console.log(error.message);
+    console.log('❌ WEBHOOK ERROR:', error.message);
   }
 });
 
-/* =========================
+/* ====================================
    HOME
-========================= */
+==================================== */
 
 app.get('/', (req, res) => {
 
-  res.send('BOT WORKING');
+  res.send('✅ BOT WORKING');
 });
 
-/* =========================
+/* ====================================
+   CACHE CLEANER
+==================================== */
+
+setInterval(() => {
+
+  const now = Date.now();
+
+  for (const key in cache) {
+
+    if (now - cache[key].time > CACHE_TIME) {
+
+      delete cache[key];
+    }
+  }
+
+  console.log('🧹 CACHE CLEAN');
+
+}, 1000 * 60);
+
+/* ====================================
    START
-========================= */
+==================================== */
 
 app.listen(PORT, () => {
 
-  console.log(`RUNNING ${PORT}`);
+  console.log(`🚀 BOT RUNNING ON ${PORT}`);
 });
