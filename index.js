@@ -80,7 +80,18 @@ function toILS(usd){return Math.round(parseFloat(usd||0)*USD_TO_ILS);}
 function buildAffiliateLink(productId){return'https://www.aliexpress.com/item/'+productId+'.html?aff_platform=portals-tool&sk=_dV4Bh9T&aff_trace_key='+ALI_TRACKING_ID+'&terminal_id='+ALI_APP_KEY;}
 
 async function shortenLink(url){
-  try{const r=await axios.get('https://tinyurl.com/api-create.php?url='+encodeURIComponent(url),{timeout:8000});if(r.data&&typeof r.data==='string'&&r.data.startsWith('http'))return r.data.trim();return url;}catch(e){return url;}
+  try {
+    if (!url || !url.startsWith('http')) {
+      console.log('⚠️ Invalid URL for shortening:', url);
+      return url;
+    }
+    // בחזור לקישור ישיר - TinyURL לא יציב
+    console.log('🔗 Using direct AliExpress link (no shortening - TinyURL removed)');
+    return url;
+  } catch(e) {
+    console.error('❌ Shorten error:', e.message);
+    return url;
+  }
 }
 
 function formatProduct(p,num){
@@ -377,7 +388,7 @@ async function handleAdmin(text,chatId){
     return;
   }
   if(cmd==='!ניקוי cache'){cacheClear();await sendMsg(chatId,'✅ Cache cleared!');return;}
-  if(cmd==='!בוקר'){await sendMsg(GROUP_CHAT_ID,'━━━━━━━━━━━━━━━\n☀️ *בוקר טוב!*\n━━━━━━━━━━━━━━━\n\nיום חדש = דילים חדשים!\nבואו נחפש ביחד! ��');return;}
+  if(cmd==='!בוקר'){await sendMsg(GROUP_CHAT_ID,'━━━━━━━━━━━━━━━\n☀️ *בוקר טוב!*\n━━━━━━━━━━━━━━━\n\nיום חדש = דילים חדשים!\nבואו נחפש ביחד! 🔥');return;}
   if(cmd==='!ערב'){await sendMsg(GROUP_CHAT_ID,'━━━━━━━━━━━━━━━\n🌙 *ערב טוב!*\n━━━━━━━━━━━━━━━\n\nעדיין מחפשים? בואו נמצא דילים! 💤');return;}
   if(cmd==='!תחרות'){await sendMsg(GROUP_CHAT_ID,'━━━━━━━━━━━━━━━\n🏆 *תחרות דילים!*\n━━━━━━━━━━━━━━━\n\nמי ימצא את הדיל הכי טוב? 🔥');return;}
   if(cmd==='!מצב לילה'){await sendMsg(GROUP_CHAT_ID,'🌙 *מצב לילה* 😴');await sendMsg(chatId,'✅');return;}
